@@ -8,9 +8,9 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // మీ details ఇక్కడ పెట్టండి
-const RAZORPAY_KEY_ID = 'rzp_test_T7ODOFeQhbVGb7';
-const RAZORPAY_KEY_SECRET = 'ZzzUTEu7Yr9B7hoExK5UwcNT';
-const BLYNK_TOKEN = 'cpXiopUbvbD5NRTKg7X3asmhsH05SBl1';
+const RAZORPAY_KEY_ID = process.env.RAZORPAY_KEY_ID;
+const RAZORPAY_KEY_SECRET = process.env.RAZORPAY_KEY_SECRET;
+const BLYNK_TOKEN = process.env.BLYNK_TOKEN;
 const BLYNK_BASE_URL = 'https://blynk.cloud/external/api';
 
 const razorpay = new Razorpay({
