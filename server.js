@@ -17,10 +17,33 @@ const razorpay = new Razorpay({
   key_secret: RAZORPAY_KEY_SECRET,
 });
 
-// Payment store చేయడానికి
+// Pending payments store
 let pendingPayments = {};
 
-// Webhook - payment వచ్చినప్పుడు
+// Auto refund function
+async function autoRefund(paymentId) {
+  try {
+    if (!pendingPayments[paymentId]) return;
+    if (pendingPayments[paymentId].status !== 'pending') return;
+
+    console.log('Auto refund triggered:', paymentId);
+    pendingPayments[paymentId].status = 'refunding';
+
+    const refund = await razorpay.payments.refund(paymentId, {});
+    console.log('Auto refund success:', refund.id);
+
+    delete pendingPayments[paymentId];
+
+    // Blynk కి notify చేయడం
+    await axios.get(BLYNK_BASE_URL + '/update?token=' + BLYNK_TOKEN + '&V8=Refunded!');
+
+  } catch (err) {
+    console.log('Auto refund error:', err.message);
+    delete pendingPayments[paymentId];
+  }
+}
+
+// Webhook
 app.post('/webhook', async (req, res) => {
   try {
     const secret = RAZORPAY_KEY_SECRET;
@@ -41,6 +64,7 @@ app.post('/webhook', async (req, res) => {
     if (event === 'payment.captured') {
       const payment = req.body.payload.payment.entity;
       const paymentId = payment.id;
+      const timeoutSeconds = 60; // Default 60 seconds
 
       console.log('Payment received:', paymentId);
 
@@ -49,16 +73,22 @@ app.post('/webhook', async (req, res) => {
         id: paymentId,
         amount: payment.amount,
         time: Date.now(),
-        status: 'pending'
+        status: 'pending',
+        timeout: timeoutSeconds
       };
 
-      // Blynk కి V1 trigger
+      // Blynk V1 trigger
       await axios.get(BLYNK_BASE_URL + '/update?token=' + BLYNK_TOKEN + '&V1=1');
 
-      // Payment ID ని V7 కి పంపడం
+      // Payment ID V7 కి పంపడం
       await axios.get(BLYNK_BASE_URL + '/update?token=' + BLYNK_TOKEN + '&V7=' + paymentId);
 
-      console.log('Blynk triggered for:', paymentId);
+      console.log('Blynk triggered:', paymentId);
+
+      // Timeout తర్వాత auto refund
+      setTimeout(() => {
+        autoRefund(paymentId);
+      }, timeoutSeconds * 1000);
     }
 
     res.json({ status: 'ok' });
@@ -69,7 +99,7 @@ app.post('/webhook', async (req, res) => {
   }
 });
 
-// ESP8266 నుండి relay ON success వచ్చినప్పుడు
+// ESP8266 నుండి success
 app.post('/success', async (req, res) => {
   try {
     const { paymentId } = req.body;
@@ -81,18 +111,15 @@ app.post('/success', async (req, res) => {
     pendingPayments[paymentId].status = 'success';
     console.log('Relay ON success:', paymentId);
 
-    // ఇక్కడ vendor కి transfer చేయవచ్చు (future)
     delete pendingPayments[paymentId];
-
     res.json({ success: true });
 
   } catch (err) {
-    console.log('Success error:', err.message);
     res.json({ success: false, error: err.message });
   }
 });
 
-// ESP8266 నుండి refund request వచ్చినప్పుడు
+// ESP8266 నుండి manual refund
 app.post('/refund', async (req, res) => {
   try {
     const { paymentId } = req.body;
@@ -101,19 +128,10 @@ app.post('/refund', async (req, res) => {
       return res.json({ success: false, error: 'No payment ID' });
     }
 
-    console.log('Refund request:', paymentId);
-
-    const refund = await razorpay.payments.refund(paymentId, {});
-
-    if (pendingPayments[paymentId]) {
-      delete pendingPayments[paymentId];
-    }
-
-    console.log('Refund done:', refund.id);
-    res.json({ success: true, refund });
+    await autoRefund(paymentId);
+    res.json({ success: true });
 
   } catch (err) {
-    console.log('Refund error:', err.message);
     res.json({ success: false, error: err.message });
   }
 });
