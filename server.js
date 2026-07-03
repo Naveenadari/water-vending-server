@@ -20,10 +20,10 @@ const razorpay = new Razorpay({
 // ₹20=V1, ₹30=V2, ₹40=V3, ₹50=V4
 // Razorpay amount పైసలలో store చేస్తుంది
 const AMOUNT_PIN_MAP = {
-  2000: 'V1',
-  3000: 'V2',
-  4000: 'V3',
-  5000: 'V4'
+  100: 'V1',
+  200: 'V2',
+  300: 'V3',
+  400: 'V4'
 };
 
 let lastPayment = null;
