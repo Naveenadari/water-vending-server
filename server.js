@@ -17,40 +17,79 @@ const razorpay = new Razorpay({
   key_secret: RAZORPAY_KEY_SECRET,
 });
 
-// Payment ID తాత్కాలికంగా store చేయడానికి
-let lastPaymentId = null;
+// Payment store చేయడానికి
+let pendingPayments = {};
 
-// Webhook - Razorpay payment వచ్చినప్పుడు
+// Webhook - payment వచ్చినప్పుడు
 app.post('/webhook', async (req, res) => {
-  const secret = RAZORPAY_KEY_SECRET;
-  const signature = req.headers['x-razorpay-signature'];
-  const body = JSON.stringify(req.body);
+  try {
+    const secret = RAZORPAY_KEY_SECRET;
+    const signature = req.headers['x-razorpay-signature'];
+    const body = JSON.stringify(req.body);
 
-  const expected = crypto
-    .createHmac('sha256', secret)
-    .update(body)
-    .digest('hex');
+    const expected = crypto
+      .createHmac('sha256', secret)
+      .update(body)
+      .digest('hex');
 
-  if (signature !== expected) {
-    return res.status(400).json({ error: 'Invalid signature' });
+    if (signature !== expected) {
+      return res.status(400).json({ error: 'Invalid signature' });
+    }
+
+    const event = req.body.event;
+
+    if (event === 'payment.captured') {
+      const payment = req.body.payload.payment.entity;
+      const paymentId = payment.id;
+
+      console.log('Payment received:', paymentId);
+
+      // Payment store చేయడం
+      pendingPayments[paymentId] = {
+        id: paymentId,
+        amount: payment.amount,
+        time: Date.now(),
+        status: 'pending'
+      };
+
+      // Blynk కి V1 trigger
+      await axios.get(BLYNK_BASE_URL + '/update?token=' + BLYNK_TOKEN + '&V1=1');
+
+      // Payment ID ని V7 కి పంపడం
+      await axios.get(BLYNK_BASE_URL + '/update?token=' + BLYNK_TOKEN + '&V7=' + paymentId);
+
+      console.log('Blynk triggered for:', paymentId);
+    }
+
+    res.json({ status: 'ok' });
+
+  } catch (err) {
+    console.log('Webhook error:', err.message);
+    res.json({ status: 'error' });
   }
+});
 
-  const event = req.body.event;
+// ESP8266 నుండి relay ON success వచ్చినప్పుడు
+app.post('/success', async (req, res) => {
+  try {
+    const { paymentId } = req.body;
 
-  if (event === 'payment.captured') {
-    const payment = req.body.payload.payment.entity;
-    lastPaymentId = payment.id;
+    if (!paymentId || !pendingPayments[paymentId]) {
+      return res.json({ success: false, error: 'Payment not found' });
+    }
 
-    console.log('Payment received:', lastPaymentId);
+    pendingPayments[paymentId].status = 'success';
+    console.log('Relay ON success:', paymentId);
 
-    // Blynk కి V1 trigger చేయడం
-    await axios.get(BLYNK_BASE_URL + '/update?token=' + BLYNK_TOKEN + '&v1=1');
+    // ఇక్కడ vendor కి transfer చేయవచ్చు (future)
+    delete pendingPayments[paymentId];
 
-    // Payment ID ని V7 కి పంపడం (ESP8266 store చేస్తుంది)
-    await axios.get(BLYNK_BASE_URL + '/update?token=' + BLYNK_TOKEN + '&v7=' + lastPaymentId);
+    res.json({ success: true });
+
+  } catch (err) {
+    console.log('Success error:', err.message);
+    res.json({ success: false, error: err.message });
   }
-
-  res.json({ status: 'ok' });
 });
 
 // ESP8266 నుండి refund request వచ్చినప్పుడు
@@ -62,11 +101,15 @@ app.post('/refund', async (req, res) => {
       return res.json({ success: false, error: 'No payment ID' });
     }
 
-    console.log('Refund request for:', paymentId);
+    console.log('Refund request:', paymentId);
 
     const refund = await razorpay.payments.refund(paymentId, {});
 
-    console.log('Refund successful:', refund.id);
+    if (pendingPayments[paymentId]) {
+      delete pendingPayments[paymentId];
+    }
+
+    console.log('Refund done:', refund.id);
     res.json({ success: true, refund });
 
   } catch (err) {
