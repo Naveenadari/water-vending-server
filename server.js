@@ -17,7 +17,15 @@ const razorpay = new Razorpay({
   key_secret: RAZORPAY_KEY_SECRET,
 });
 
-// Last payment track చేయడానికి
+// ₹20=V1, ₹30=V2, ₹40=V3, ₹50=V4
+// Razorpay amount పైసలలో store చేస్తుంది
+const AMOUNT_PIN_MAP = {
+  2000: 'V1',
+  3000: 'V2',
+  4000: 'V3',
+  5000: 'V4'
+};
+
 let lastPayment = null;
 let refundTimer = null;
 
@@ -44,7 +52,6 @@ async function doRefund(paymentId) {
   refundTimer = null;
 }
 
-// Webhook
 app.post('/webhook', async (req, res) => {
   try {
     const secret = RAZORPAY_KEY_SECRET;
@@ -65,11 +72,22 @@ app.post('/webhook', async (req, res) => {
     if (event === 'payment.captured') {
       const payment = req.body.payload.payment.entity;
       const paymentId = payment.id;
+      const amount = payment.amount;
       const timeoutSeconds = 60;
 
-      console.log('Payment received:', paymentId);
+      console.log('Payment received:', paymentId, 'Amount:', amount);
 
-      // Previous timer cancel చేయడం
+      const vpin = AMOUNT_PIN_MAP[amount];
+
+      if (!vpin) {
+        console.log('Wrong amount! Refunding:', amount);
+        await triggerBlynk('V8', 'Wrong amount! Refunding...');
+        setTimeout(async () => {
+          await doRefund(paymentId);
+        }, 2000);
+        return res.json({ status: 'ok' });
+      }
+
       if (refundTimer) {
         clearTimeout(refundTimer);
         refundTimer = null;
@@ -77,13 +95,11 @@ app.post('/webhook', async (req, res) => {
 
       lastPayment = paymentId;
 
-      // V1 trigger
-      await triggerBlynk('V1', '1');
-      await triggerBlynk('V8', 'Payment OK! Relay starting...');
+      await triggerBlynk(vpin, '1');
+      await triggerBlynk('V8', 'Payment OK! Starting...');
 
-      console.log('Blynk V1 triggered');
+      console.log('Triggered:', vpin, 'for amount:', amount);
 
-      // Auto refund timer
       refundTimer = setTimeout(() => {
         if (lastPayment === paymentId) {
           doRefund(paymentId);
@@ -99,7 +115,6 @@ app.post('/webhook', async (req, res) => {
   }
 });
 
-// ESP8266 నుండి success - relay ON అయింది
 app.post('/success', async (req, res) => {
   try {
     console.log('Relay ON success received');
