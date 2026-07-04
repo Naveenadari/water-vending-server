@@ -75,6 +75,7 @@ h2{color:#333}
 .vc{background:#e3f2fd;padding:15px;border-radius:8px;margin-bottom:10px}
 .vc h3{margin:0 0 10px 0;color:#1565c0}
 .qb{background:#f5f5f5;padding:10px;border-radius:5px;margin-top:10px;word-break:break-all;font-size:12px}
+img{max-width:200px;margin-top:10px}
 </style>
 </head>
 <body>
@@ -103,27 +104,18 @@ h2{color:#333}
 </div>
 <script>
 var pwd = '';
-
 document.getElementById('loginBtn').addEventListener('click', function() {
   pwd = document.getElementById('pwd').value;
-  fetch('/admin/vendors', {
-    headers: { 'x-admin-password': pwd }
-  })
+  fetch('/admin/vendors', { headers: { 'x-admin-password': pwd } })
   .then(function(r) { return r.json(); })
   .then(function(data) {
-    if (data.error) {
-      alert('Wrong password!');
-      return;
-    }
+    if (data.error) { alert('Wrong password!'); return; }
     document.getElementById('loginCard').style.display = 'none';
     document.getElementById('panel').style.display = 'block';
     showVendors(data);
   })
-  .catch(function(e) {
-    alert('Error: ' + e.message);
-  });
+  .catch(function(e) { alert('Error: ' + e.message); });
 });
-
 document.getElementById('addBtn').addEventListener('click', function() {
   var data = {
     vendorId: document.getElementById('vendorId').value,
@@ -141,32 +133,20 @@ document.getElementById('addBtn').addEventListener('click', function() {
   })
   .then(function(r) { return r.json(); })
   .then(function(res) {
-    if (res.success) {
-      alert('Vendor added!');
-      loadVendors();
-    } else {
-      alert('Error: ' + res.error);
-    }
+    if (res.success) { alert('Vendor added!'); loadVendors(); }
+    else alert('Error: ' + res.error);
   });
 });
-
-document.getElementById('refreshBtn').addEventListener('click', function() {
-  loadVendors();
-});
-
+document.getElementById('refreshBtn').addEventListener('click', function() { loadVendors(); });
 function loadVendors() {
   fetch('/admin/vendors', { headers: { 'x-admin-password': pwd } })
   .then(function(r) { return r.json(); })
   .then(function(data) { showVendors(data); });
 }
-
 function showVendors(data) {
   var div = document.getElementById('vendorsList');
   var keys = Object.keys(data);
-  if (keys.length === 0) {
-    div.innerHTML = '<p>No vendors yet!</p>';
-    return;
-  }
+  if (keys.length === 0) { div.innerHTML = '<p>No vendors yet!</p>'; return; }
   var html = '';
   keys.forEach(function(id) {
     var v = data[id];
@@ -175,45 +155,33 @@ function showVendors(data) {
     html += '<p>ID: ' + id + '</p>';
     html += '<p>Commission: ' + v.commission + '%</p>';
     html += '<p>Bank: ' + v.bank_account + '</p>';
-    if (v.payment_link) {
-      html += '<div class="qb">Payment Link: <a href="' + v.payment_link + '" target="_blank">' + v.payment_link + '</a></div>';
+    if (v.qr_image) {
+      html += '<div class="qb"><p>QR Code:</p><img src="' + v.qr_image + '" alt="QR Code"><br><a href="' + v.qr_image + '" target="_blank">Download QR</a></div>';
     }
-    html += '<button class="btn btn-orange" data-id="' + id + '" data-action="qr">Generate QR Link</button>';
+    html += '<button class="btn btn-orange" data-id="' + id + '" data-action="qr">Generate QR Code</button>';
     html += '<button class="btn btn-red" data-id="' + id + '" data-action="del">Delete</button>';
     html += '</div>';
   });
   div.innerHTML = html;
-
   div.querySelectorAll('button[data-action="qr"]').forEach(function(btn) {
-    btn.addEventListener('click', function() {
-      generateQR(this.getAttribute('data-id'));
-    });
+    btn.addEventListener('click', function() { generateQR(this.getAttribute('data-id')); });
   });
-
   div.querySelectorAll('button[data-action="del"]').forEach(function(btn) {
-    btn.addEventListener('click', function() {
-      deleteVendor(this.getAttribute('data-id'));
-    });
+    btn.addEventListener('click', function() { deleteVendor(this.getAttribute('data-id')); });
   });
 }
-
 function generateQR(vendorId) {
-  fetch('/admin/vendors/generate-links', {
+  fetch('/admin/vendors/generate-qr', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-admin-password': pwd },
     body: JSON.stringify({ vendorId: vendorId })
   })
   .then(function(r) { return r.json(); })
   .then(function(res) {
-    if (res.success) {
-      alert('QR Link generated!');
-      loadVendors();
-    } else {
-      alert('Error: ' + res.error);
-    }
+    if (res.success) { alert('QR Code generated!'); loadVendors(); }
+    else alert('Error: ' + res.error);
   });
 }
-
 function deleteVendor(id) {
   if (!confirm('Delete vendor ' + id + '?')) return;
   fetch('/admin/vendors/delete', {
@@ -223,19 +191,14 @@ function deleteVendor(id) {
   })
   .then(function(r) { return r.json(); })
   .then(function(res) {
-    if (res.success) {
-      alert('Deleted!');
-      loadVendors();
-    }
+    if (res.success) { alert('Deleted!'); loadVendors(); }
   });
 }
 </script>
 </body>
 </html>`;
 
-app.get('/admin', function(req, res) {
-  res.send(adminHTML);
-});
+app.get('/admin', function(req, res) { res.send(adminHTML); });
 
 app.get('/admin/vendors', function(req, res) {
   if (req.headers['x-admin-password'] !== ADMIN_PASSWORD) {
@@ -264,7 +227,7 @@ app.post('/admin/vendors/add', function(req, res) {
   res.json({ success: true });
 });
 
-app.post('/admin/vendors/generate-links', async function(req, res) {
+app.post('/admin/vendors/generate-qr', async function(req, res) {
   if (req.headers['x-admin-password'] !== ADMIN_PASSWORD) {
     return res.json({ success: false, error: 'Unauthorized' });
   }
@@ -274,20 +237,30 @@ app.post('/admin/vendors/generate-links', async function(req, res) {
     return res.json({ success: false, error: 'Vendor not found' });
   }
   try {
-    var link = await razorpay.qrCode.create({
-  type: 'upi_qr',
-  name: vendorId,
-  usage: 'multiple_use',
-  fixed_amount: false,
-  description: 'Water - ' + vendorId,
-  notes: { vendor_id: vendorId }
-});
-    vendors[vendorId].payment_link = link.short_url;
-    console.log('Link created:', vendorId, link.short_url);
+    var response = await axios.post(
+      'https://api.razorpay.com/v1/payments/qr-codes',
+      {
+        type: 'upi_qr',
+        name: vendorId,
+        usage: 'multiple_use',
+        fixed_amount: false,
+        description: 'Water - ' + vendorId,
+        notes: { vendor_id: vendorId }
+      },
+      {
+        auth: {
+          username: RAZORPAY_KEY_ID,
+          password: RAZORPAY_KEY_SECRET
+        }
+      }
+    );
+    vendors[vendorId].qr_image = response.data.image_url;
+    vendors[vendorId].qr_id = response.data.id;
+    console.log('QR created:', vendorId, response.data.id);
     res.json({ success: true });
   } catch (err) {
-    console.log('Generate link error:', JSON.stringify(err));
-    res.json({ success: false, error: err.message });
+    console.log('QR error:', err.response ? JSON.stringify(err.response.data) : err.message);
+    res.json({ success: false, error: err.response ? err.response.data.error.description : err.message });
   }
 });
 
@@ -333,9 +306,7 @@ app.post('/webhook', async function(req, res) {
       await triggerBlynk(vendor.blynk_token, 'V8', 'Payment OK!');
       console.log('Triggered:', vpin, 'for vendor:', vendorId);
       refundTimers[paymentId] = setTimeout(async function() {
-        if (lastPayments[paymentId]) {
-          await doRefund(paymentId, vendorId);
-        }
+        if (lastPayments[paymentId]) { await doRefund(paymentId, vendorId); }
       }, timeoutSeconds * 1000);
     }
     res.json({ status: 'ok' });
@@ -367,11 +338,7 @@ app.post('/success', async function(req, res) {
   }
 });
 
-app.get('/', function(req, res) {
-  res.send('Water Vending Server Running!');
-});
+app.get('/', function(req, res) { res.send('Water Vending Server Running!'); });
 
 var PORT = process.env.PORT || 3000;
-app.listen(PORT, function() {
-  console.log('Server running on port ' + PORT);
-});
+app.listen(PORT, function() { console.log('Server running on port ' + PORT); });
