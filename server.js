@@ -275,7 +275,7 @@ app.post('/admin/vendors/generate-links', async function(req, res) {
   }
   try {
     var link = await razorpay.paymentLink.create({
-      amount: 100,
+      amount: 0,
       currency: 'INR',
       description: 'Water - ' + vendorId,
       notes: { vendor_id: vendorId },
