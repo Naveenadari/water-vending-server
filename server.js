@@ -6,7 +6,6 @@ const axios = require('axios');
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use(express.static('public'));
 
 const RAZORPAY_KEY_ID = process.env.RAZORPAY_KEY_ID;
 const RAZORPAY_KEY_SECRET = process.env.RAZORPAY_KEY_SECRET;
@@ -19,10 +18,6 @@ const razorpay = new Razorpay({
 
 const BLYNK_BASE_URL = 'https://blynk.cloud/external/api';
 
-// Vendors store
-let vendors = {};
-
-// Amount to Vpin mapping
 const AMOUNT_PIN_MAP = {
   100: 'V1',
   200: 'V2',
@@ -30,6 +25,7 @@ const AMOUNT_PIN_MAP = {
   400: 'V4'
 };
 
+let vendors = {};
 let lastPayments = {};
 let refundTimers = {};
 
@@ -73,13 +69,15 @@ app.get('/admin', (req, res) => {
 <style>
 body { font-family: Arial; padding: 20px; background: #f0f0f0; }
 .card { background: white; padding: 20px; border-radius: 10px; margin-bottom: 20px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
-input, select { width: 100%; padding: 10px; margin: 5px 0 15px 0; border: 1px solid #ddd; border-radius: 5px; box-sizing: border-box; }
-button { background: #2196F3; color: white; padding: 12px 20px; border: none; border-radius: 5px; width: 100%; font-size: 16px; cursor: pointer; }
+input { width: 100%; padding: 10px; margin: 5px 0 15px 0; border: 1px solid #ddd; border-radius: 5px; box-sizing: border-box; }
+button { background: #2196F3; color: white; padding: 12px 20px; border: none; border-radius: 5px; width: 100%; font-size: 16px; cursor: pointer; margin-bottom: 10px; }
 button.red { background: #f44336; }
 button.green { background: #4CAF50; }
+button.orange { background: #FF9800; }
 h2 { color: #333; }
 .vendor-card { background: #e3f2fd; padding: 15px; border-radius: 8px; margin-bottom: 10px; }
 .vendor-card h3 { margin: 0 0 10px 0; color: #1565c0; }
+.qr-box { background: #f5f5f5; padding: 10px; border-radius: 5px; margin-top: 10px; word-break: break-all; font-size: 12px; }
 </style>
 </head>
 <body>
@@ -126,9 +124,7 @@ function login() {
 function loadVendors() {
   fetch('/admin/vendors', {
     headers: { 'x-admin-password': pwd }
-  }).then(r => r.json()).then(data => {
-    showVendors(data);
-  });
+  }).then(r => r.json()).then(data => showVendors(data));
 }
 
 function showVendors(data) {
@@ -137,12 +133,17 @@ function showVendors(data) {
     div.innerHTML = '<p>No vendors yet!</p>';
     return;
   }
-  div.innerHTML = Object.entries(data).map(([id, v]) => 
+  div.innerHTML = Object.entries(data).map(([id, v]) =>
     '<div class="vendor-card">' +
     '<h3>' + v.name + '</h3>' +
     '<p>ID: ' + id + '</p>' +
     '<p>Commission: ' + v.commission + '%</p>' +
     '<p>Bank: ' + v.bank_account + '</p>' +
+    (v.payment_links ? '<div class="qr-box">Payment Links:<br>' + 
+    Object.entries(v.payment_links).map(([amt, url]) => 
+      '₹' + (amt/100) + ': <a href="' + url + '" target="_blank">' + url + '</a>'
+    ).join('<br>') + '</div>' : '') +
+    '<button class="orange" onclick="generateQR(' + "'" + id + "'" + ')">Generate QR Links</button>' +
     '<button class="red" onclick="deleteVendor(' + "'" + id + "'" + ')">Delete</button>' +
     '</div>'
   ).join('');
@@ -168,6 +169,17 @@ function addVendor() {
   });
 }
 
+function generateQR(vendorId) {
+  fetch('/admin/vendors/generate-links', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-admin-password': pwd },
+    body: JSON.stringify({ vendorId })
+  }).then(r => r.json()).then(res => {
+    if (res.success) { alert('Payment links generated!'); loadVendors(); }
+    else alert('Error: ' + res.error);
+  });
+}
+
 function deleteVendor(id) {
   if (!confirm('Delete vendor ' + id + '?')) return;
   fetch('/admin/vendors/delete', {
@@ -184,34 +196,69 @@ function deleteVendor(id) {
   `);
 });
 
-// Admin API - Get vendors
+// Admin - Get vendors
 app.get('/admin/vendors', (req, res) => {
-  const pwd = req.headers['x-admin-password'];
-  if (pwd !== ADMIN_PASSWORD) {
+  if (req.headers['x-admin-password'] !== ADMIN_PASSWORD) {
     return res.json({ error: 'Unauthorized' });
   }
   res.json(vendors);
 });
 
-// Admin API - Add vendor
+// Admin - Add vendor
 app.post('/admin/vendors/add', (req, res) => {
-  const pwd = req.headers['x-admin-password'];
-  if (pwd !== ADMIN_PASSWORD) {
+  if (req.headers['x-admin-password'] !== ADMIN_PASSWORD) {
     return res.json({ success: false, error: 'Unauthorized' });
   }
   const { vendorId, name, blynk_token, bank_account, bank_ifsc, bank_name, commission } = req.body;
   if (!vendorId || !name || !blynk_token) {
     return res.json({ success: false, error: 'Missing fields' });
   }
-  vendors[vendorId] = { name, blynk_token, bank_account, bank_ifsc, bank_name, commission };
+  vendors[vendorId] = { name, blynk_token, bank_account, bank_ifsc, bank_name, commission, payment_links: {} };
   console.log('Vendor added:', vendorId);
   res.json({ success: true });
 });
 
-// Admin API - Delete vendor
+// Admin - Generate payment links
+app.post('/admin/vendors/generate-links', async (req, res) => {
+  if (req.headers['x-admin-password'] !== ADMIN_PASSWORD) {
+    return res.json({ success: false, error: 'Unauthorized' });
+  }
+  const { vendorId } = req.body;
+  const vendor = vendors[vendorId];
+  if (!vendor) {
+    return res.json({ success: false, error: 'Vendor not found' });
+  }
+
+  try {
+    const amounts = [100, 200, 300, 400];
+    const links = {};
+
+    for (const amount of amounts) {
+      const link = await razorpay.paymentLink.create({
+        amount: amount,
+        currency: 'INR',
+        description: 'Water - ' + vendorId,
+        notes: {
+          vendor_id: vendorId
+        },
+        reminder_enable: false
+      });
+      links[amount] = link.short_url;
+      console.log('Link created for vendor:', vendorId, 'amount:', amount);
+    }
+
+    vendors[vendorId].payment_links = links;
+    res.json({ success: true, links });
+
+  } catch (err) {
+    console.log('Generate links error:', err.message);
+    res.json({ success: false, error: err.message });
+  }
+});
+
+// Admin - Delete vendor
 app.post('/admin/vendors/delete', (req, res) => {
-  const pwd = req.headers['x-admin-password'];
-  if (pwd !== ADMIN_PASSWORD) {
+  if (req.headers['x-admin-password'] !== ADMIN_PASSWORD) {
     return res.json({ success: false, error: 'Unauthorized' });
   }
   const { vendorId } = req.body;
@@ -245,8 +292,6 @@ app.post('/webhook', async (req, res) => {
       const timeoutSeconds = 60;
 
       console.log('Payment:', paymentId, 'Amount:', amount, 'Vendor:', vendorId);
-      console.log('Payment notes:', JSON.stringify(payment.notes));
-      console.log('Payment description:', payment.description);
 
       const vpin = AMOUNT_PIN_MAP[amount];
 
@@ -267,6 +312,8 @@ app.post('/webhook', async (req, res) => {
 
       await triggerBlynk(vendor.blynk_token, vpin, '1');
       await triggerBlynk(vendor.blynk_token, 'V8', 'Payment OK!');
+
+      console.log('Triggered:', vpin, 'for vendor:', vendorId);
 
       refundTimers[paymentId] = setTimeout(() => {
         if (lastPayments[paymentId]) {
@@ -289,7 +336,6 @@ app.post('/success', async (req, res) => {
     const { vendorId } = req.body;
     console.log('Relay ON success:', vendorId);
 
-    // Cancel all pending timers for this vendor
     Object.keys(refundTimers).forEach(paymentId => {
       if (lastPayments[paymentId] && lastPayments[paymentId].vendorId === vendorId) {
         clearTimeout(refundTimers[paymentId]);
