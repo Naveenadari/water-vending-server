@@ -230,27 +230,20 @@ app.post('/admin/vendors/generate-links', async (req, res) => {
   }
 
   try {
-    const amounts = [100, 200, 300, 400];
-    const links = {};
+   const link = await razorpay.paymentLink.create({
+      amount: 0,
+      currency: 'INR',
+      description: 'Water - ' + vendorId,
+      notes: {
+        vendor_id: vendorId
+      },
+      reminder_enable: false
+    });
 
-    for (const amount of amounts) {
-      const link = await razorpay.paymentLink.create({
-        amount: amount,
-        currency: 'INR',
-        description: 'Water - ' + vendorId,
-        notes: {
-          vendor_id: vendorId
-        },
-        reminder_enable: false
-      });
-      links[amount] = link.short_url;
-      console.log('Link created for vendor:', vendorId, 'amount:', amount);
-    }
-
-    vendors[vendorId].payment_links = links;
-    res.json({ success: true, links });
-
-  } catch (err) {
+    vendors[vendorId].payment_link = link.short_url;
+    vendors[vendorId].payment_links = { 'custom': link.short_url };
+    res.json({ success: true, links: vendors[vendorId].payment_links });
+    catch (err) {
     console.log('Generate links error:', err.message);
     res.json({ success: false, error: err.message });
   }
