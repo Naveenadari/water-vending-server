@@ -239,22 +239,22 @@ app.post('/admin/vendors/generate-qr', async function(req, res) {
   }
   try {
     var response = await axios.post(
-      'https://api.razorpay.com/v1/payments/qr-codes',
-      {
-        type: 'upi_qr',
-        name: vendorId,
-        usage: 'multiple_use',
-        fixed_amount: false,
-        description: 'Water - ' + vendorId,
-        notes: { vendor_id: vendorId }
-      },
-      {
-        auth: {
-          username: RAZORPAY_KEY_ID,
-          password: RAZORPAY_KEY_SECRET
-        }
-      }
-    );
+  'https://api.razorpay.com/v1/qr-codes',
+  {
+    type: 'upi_qr',
+    name: vendorId,
+    usage: 'multiple_use',
+    fixed_amount: false,
+    description: 'Water - ' + vendorId,
+    notes: { vendor_id: vendorId }
+  },
+  {
+    auth: {
+      username: RAZORPAY_KEY_ID,
+      password: RAZORPAY_KEY_SECRET
+    }
+  }
+);
     vendors[vendorId].qr_image = response.data.image_url;
     vendors[vendorId].qr_id = response.data.id;
     console.log('QR created:', vendorId, response.data.id);
