@@ -245,6 +245,8 @@ app.post('/webhook', async (req, res) => {
       const timeoutSeconds = 60;
 
       console.log('Payment:', paymentId, 'Amount:', amount, 'Vendor:', vendorId);
+      console.log('Payment notes:', JSON.stringify(payment.notes));
+      console.log('Payment description:', payment.description);
 
       const vpin = AMOUNT_PIN_MAP[amount];
 
