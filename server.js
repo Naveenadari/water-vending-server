@@ -274,13 +274,14 @@ app.post('/admin/vendors/generate-links', async function(req, res) {
     return res.json({ success: false, error: 'Vendor not found' });
   }
   try {
-    var link = await razorpay.paymentLink.create({
-      amount: 0,
-      currency: 'INR',
-      description: 'Water - ' + vendorId,
-      notes: { vendor_id: vendorId },
-      reminder_enable: false
-    });
+    var link = await razorpay.qrCode.create({
+  type: 'upi_qr',
+  name: vendorId,
+  usage: 'multiple_use',
+  fixed_amount: false,
+  description: 'Water - ' + vendorId,
+  notes: { vendor_id: vendorId }
+});
     vendors[vendorId].payment_link = link.short_url;
     console.log('Link created:', vendorId, link.short_url);
     res.json({ success: true });
