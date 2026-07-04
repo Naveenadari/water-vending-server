@@ -286,7 +286,7 @@ app.post('/admin/vendors/generate-links', async function(req, res) {
     console.log('Link created:', vendorId, link.short_url);
     res.json({ success: true });
   } catch (err) {
-    console.log('Generate link error:', err.message);
+    console.log('Generate link error:', JSON.stringify(err));
     res.json({ success: false, error: err.message });
   }
 });
