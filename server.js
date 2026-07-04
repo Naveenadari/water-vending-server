@@ -208,6 +208,7 @@ app.get('/admin/vendors', function(req, res) {
 });
 
 app.post('/admin/vendors/add', function(req, res) {
+  
   if (req.headers['x-admin-password'] !== ADMIN_PASSWORD) {
     return res.json({ success: false, error: 'Unauthorized' });
   }
@@ -260,7 +261,7 @@ app.post('/admin/vendors/generate-qr', async function(req, res) {
     res.json({ success: true });
   } catch (err) {
     console.log('QR error:', err.response ? JSON.stringify(err.response.data) : err.message);
-    res.json({ success: false, error: err.response ? err.response.data.error.description : err.message });
+    res.json({ success: false, error: err.response ? JSON.stringify(err.response.data) : err.message });
   }
 });
 
