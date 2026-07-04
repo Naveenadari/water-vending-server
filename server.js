@@ -58,7 +58,6 @@ async function doRefund(paymentId, vendorId) {
   }
 }
 
-// ── Admin Panel ──────────────────────────────────────────
 app.get('/admin', (req, res) => {
   res.send(`
 <!DOCTYPE html>
@@ -82,14 +81,13 @@ h2 { color: #333; }
 </head>
 <body>
 <div class="card">
-<h2>🔐 Admin Login</h2>
+<h2>Admin Login</h2>
 <input type="password" id="password" placeholder="Enter admin password">
 <button onclick="login()">Login</button>
 </div>
-
 <div id="panel" style="display:none">
 <div class="card">
-<h2>➕ Add New Vendor</h2>
+<h2>Add New Vendor</h2>
 <input type="text" id="vendorId" placeholder="Vendor ID (ex: vendor_001)">
 <input type="text" id="vendorName" placeholder="Vendor Name">
 <input type="text" id="blynkToken" placeholder="Blynk Auth Token">
@@ -99,56 +97,42 @@ h2 { color: #333; }
 <input type="number" id="commission" placeholder="Commission %" value="10">
 <button class="green" onclick="addVendor()">Add Vendor</button>
 </div>
-
 <div class="card">
-<h2>📋 Vendors List</h2>
+<h2>Vendors List</h2>
 <div id="vendorsList"></div>
 <button onclick="loadVendors()">Refresh List</button>
 </div>
 </div>
-
 <script>
 let pwd = '';
-
 function login() {
   pwd = document.getElementById('password').value;
-  fetch('/admin/vendors', {
-    headers: { 'x-admin-password': pwd }
-  }).then(r => r.json()).then(data => {
-    if (data.error) { alert('Wrong password!'); return; }
-    document.getElementById('panel').style.display = 'block';
-    showVendors(data);
-  });
+  fetch('/admin/vendors', { headers: { 'x-admin-password': pwd } })
+    .then(r => r.json()).then(data => {
+      if (data.error) { alert('Wrong password!'); return; }
+      document.getElementById('panel').style.display = 'block';
+      showVendors(data);
+    });
 }
-
 function loadVendors() {
-  fetch('/admin/vendors', {
-    headers: { 'x-admin-password': pwd }
-  }).then(r => r.json()).then(data => showVendors(data));
+  fetch('/admin/vendors', { headers: { 'x-admin-password': pwd } })
+    .then(r => r.json()).then(data => showVendors(data));
 }
-
 function showVendors(data) {
   const div = document.getElementById('vendorsList');
-  if (Object.keys(data).length === 0) {
-    div.innerHTML = '<p>No vendors yet!</p>';
-    return;
-  }
+  if (Object.keys(data).length === 0) { div.innerHTML = '<p>No vendors yet!</p>'; return; }
   div.innerHTML = Object.entries(data).map(([id, v]) =>
     '<div class="vendor-card">' +
     '<h3>' + v.name + '</h3>' +
     '<p>ID: ' + id + '</p>' +
     '<p>Commission: ' + v.commission + '%</p>' +
     '<p>Bank: ' + v.bank_account + '</p>' +
-    (v.payment_links ? '<div class="qr-box">Payment Links:<br>' + 
-    Object.entries(v.payment_links).map(([amt, url]) => 
-      '₹' + (amt/100) + ': <a href="' + url + '" target="_blank">' + url + '</a>'
-    ).join('<br>') + '</div>' : '') +
-    '<button class="orange" onclick="generateQR(' + "'" + id + "'" + ')">Generate QR Links</button>' +
-    '<button class="red" onclick="deleteVendor(' + "'" + id + "'" + ')">Delete</button>' +
+    (v.payment_link ? '<div class="qr-box">Payment Link: <a href="' + v.payment_link + '" target="_blank">' + v.payment_link + '</a></div>' : '') +
+    '<button class="orange" onclick="generateQR(\'' + id + '\')">Generate QR Link</button>' +
+    '<button class="red" onclick="deleteVendor(\'' + id + '\')">Delete</button>' +
     '</div>'
   ).join('');
 }
-
 function addVendor() {
   const data = {
     vendorId: document.getElementById('vendorId').value,
@@ -168,18 +152,16 @@ function addVendor() {
     else alert('Error: ' + res.error);
   });
 }
-
 function generateQR(vendorId) {
   fetch('/admin/vendors/generate-links', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-admin-password': pwd },
     body: JSON.stringify({ vendorId })
   }).then(r => r.json()).then(res => {
-    if (res.success) { alert('Payment links generated!'); loadVendors(); }
+    if (res.success) { alert('QR Link generated!'); loadVendors(); }
     else alert('Error: ' + res.error);
   });
 }
-
 function deleteVendor(id) {
   if (!confirm('Delete vendor ' + id + '?')) return;
   fetch('/admin/vendors/delete', {
@@ -196,7 +178,6 @@ function deleteVendor(id) {
   `);
 });
 
-// Admin - Get vendors
 app.get('/admin/vendors', (req, res) => {
   if (req.headers['x-admin-password'] !== ADMIN_PASSWORD) {
     return res.json({ error: 'Unauthorized' });
@@ -204,7 +185,6 @@ app.get('/admin/vendors', (req, res) => {
   res.json(vendors);
 });
 
-// Admin - Add vendor
 app.post('/admin/vendors/add', (req, res) => {
   if (req.headers['x-admin-password'] !== ADMIN_PASSWORD) {
     return res.json({ success: false, error: 'Unauthorized' });
@@ -213,12 +193,11 @@ app.post('/admin/vendors/add', (req, res) => {
   if (!vendorId || !name || !blynk_token) {
     return res.json({ success: false, error: 'Missing fields' });
   }
-  vendors[vendorId] = { name, blynk_token, bank_account, bank_ifsc, bank_name, commission, payment_links: {} };
+  vendors[vendorId] = { name, blynk_token, bank_account, bank_ifsc, bank_name, commission };
   console.log('Vendor added:', vendorId);
   res.json({ success: true });
 });
 
-// Admin - Generate payment links
 app.post('/admin/vendors/generate-links', async (req, res) => {
   if (req.headers['x-admin-password'] !== ADMIN_PASSWORD) {
     return res.json({ success: false, error: 'Unauthorized' });
@@ -228,123 +207,92 @@ app.post('/admin/vendors/generate-links', async (req, res) => {
   if (!vendor) {
     return res.json({ success: false, error: 'Vendor not found' });
   }
-
   try {
-   const link = await razorpay.paymentLink.create({
+    const link = await razorpay.paymentLink.create({
       amount: 0,
       currency: 'INR',
       description: 'Water - ' + vendorId,
-      notes: {
-        vendor_id: vendorId
-      },
+      notes: { vendor_id: vendorId },
       reminder_enable: false
     });
-
     vendors[vendorId].payment_link = link.short_url;
-    vendors[vendorId].payment_links = { 'custom': link.short_url };
-    res.json({ success: true, links: vendors[vendorId].payment_links });
-    catch (err) {
-    console.log('Generate links error:', err.message);
+    console.log('Link created for vendor:', vendorId, link.short_url);
+    res.json({ success: true });
+  } catch (err) {
+    console.log('Generate link error:', err.message);
     res.json({ success: false, error: err.message });
   }
 });
 
-// Admin - Delete vendor
 app.post('/admin/vendors/delete', (req, res) => {
   if (req.headers['x-admin-password'] !== ADMIN_PASSWORD) {
     return res.json({ success: false, error: 'Unauthorized' });
   }
-  const { vendorId } = req.body;
-  delete vendors[vendorId];
+  delete vendors[req.body.vendorId];
   res.json({ success: true });
 });
 
-// Webhook
 app.post('/webhook', async (req, res) => {
   try {
     const secret = RAZORPAY_KEY_SECRET;
     const signature = req.headers['x-razorpay-signature'];
     const body = JSON.stringify(req.body);
-
-    const expected = crypto
-      .createHmac('sha256', secret)
-      .update(body)
-      .digest('hex');
-
+    const expected = crypto.createHmac('sha256', secret).update(body).digest('hex');
     if (signature !== expected) {
       return res.status(400).json({ error: 'Invalid signature' });
     }
-
     const event = req.body.event;
-
     if (event === 'payment.captured') {
       const payment = req.body.payload.payment.entity;
       const paymentId = payment.id;
       const amount = payment.amount;
       const vendorId = payment.notes && payment.notes.vendor_id;
       const timeoutSeconds = 60;
-
       console.log('Payment:', paymentId, 'Amount:', amount, 'Vendor:', vendorId);
-
       const vpin = AMOUNT_PIN_MAP[amount];
-
       if (!vpin) {
         console.log('Wrong amount! Refunding:', amount);
         setTimeout(async () => { await doRefund(paymentId, vendorId); }, 2000);
         return res.json({ status: 'ok' });
       }
-
       const vendor = vendors[vendorId];
       if (!vendor) {
         console.log('Vendor not found! Refunding:', vendorId);
         setTimeout(async () => { await doRefund(paymentId, vendorId); }, 2000);
         return res.json({ status: 'ok' });
       }
-
       lastPayments[paymentId] = { vendorId, amount, vpin };
-
       await triggerBlynk(vendor.blynk_token, vpin, '1');
       await triggerBlynk(vendor.blynk_token, 'V8', 'Payment OK!');
-
       console.log('Triggered:', vpin, 'for vendor:', vendorId);
-
       refundTimers[paymentId] = setTimeout(() => {
-        if (lastPayments[paymentId]) {
-          doRefund(paymentId, vendorId);
-        }
+        if (lastPayments[paymentId]) { doRefund(paymentId, vendorId); }
       }, timeoutSeconds * 1000);
     }
-
     res.json({ status: 'ok' });
-
   } catch (err) {
     console.log('Webhook error:', err.message);
     res.json({ status: 'error' });
   }
 });
 
-// Success from ESP8266
 app.post('/success', async (req, res) => {
   try {
     const { vendorId } = req.body;
     console.log('Relay ON success:', vendorId);
-
     Object.keys(refundTimers).forEach(paymentId => {
       if (lastPayments[paymentId] && lastPayments[paymentId].vendorId === vendorId) {
         clearTimeout(refundTimers[paymentId]);
         delete refundTimers[paymentId];
         delete lastPayments[paymentId];
-        console.log('Refund timer cancelled for:', paymentId);
+        console.log('Refund timer cancelled');
       }
     });
-
     const vendor = vendors[vendorId];
     if (vendor) {
       await triggerBlynk(vendor.blynk_token, 'V8', 'Water dispensing...');
     }
-
     res.json({ success: true });
-
   } catch (err) {
     res.json({ success: false, error: err.message });
   }
