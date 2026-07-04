@@ -58,32 +58,30 @@ async function doRefund(paymentId, vendorId) {
   }
 }
 
-app.get('/admin', (req, res) => {
-  res.send(`
-<!DOCTYPE html>
+const adminHTML = `<!DOCTYPE html>
 <html>
 <head>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Water Vending Admin</title>
 <style>
-body { font-family: Arial; padding: 20px; background: #f0f0f0; }
-.card { background: white; padding: 20px; border-radius: 10px; margin-bottom: 20px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
-input { width: 100%; padding: 10px; margin: 5px 0 15px 0; border: 1px solid #ddd; border-radius: 5px; box-sizing: border-box; }
-button { background: #2196F3; color: white; padding: 12px 20px; border: none; border-radius: 5px; width: 100%; font-size: 16px; cursor: pointer; margin-bottom: 10px; }
-button.red { background: #f44336; }
-button.green { background: #4CAF50; }
-button.orange { background: #FF9800; }
-h2 { color: #333; }
-.vendor-card { background: #e3f2fd; padding: 15px; border-radius: 8px; margin-bottom: 10px; }
-.vendor-card h3 { margin: 0 0 10px 0; color: #1565c0; }
-.qr-box { background: #f5f5f5; padding: 10px; border-radius: 5px; margin-top: 10px; word-break: break-all; font-size: 12px; }
+body{font-family:Arial;padding:20px;background:#f0f0f0}
+.card{background:white;padding:20px;border-radius:10px;margin-bottom:20px;box-shadow:0 2px 5px rgba(0,0,0,0.1)}
+input{width:100%;padding:10px;margin:5px 0 15px 0;border:1px solid #ddd;border-radius:5px;box-sizing:border-box}
+.btn{color:white;padding:12px 20px;border:none;border-radius:5px;width:100%;font-size:16px;cursor:pointer;margin-bottom:10px;background:#2196F3}
+.btn-red{background:#f44336}
+.btn-green{background:#4CAF50}
+.btn-orange{background:#FF9800}
+h2{color:#333}
+.vc{background:#e3f2fd;padding:15px;border-radius:8px;margin-bottom:10px}
+.vc h3{margin:0 0 10px 0;color:#1565c0}
+.qb{background:#f5f5f5;padding:10px;border-radius:5px;margin-top:10px;word-break:break-all;font-size:12px}
 </style>
 </head>
 <body>
-<div class="card">
+<div class="card" id="loginCard">
 <h2>Admin Login</h2>
-<input type="password" id="password" placeholder="Enter admin password">
-<button onclick="login()">Login</button>
+<input type="password" id="pwd" placeholder="Enter admin password">
+<button class="btn" id="loginBtn">Login</button>
 </div>
 <div id="panel" style="display:none">
 <div class="card">
@@ -95,46 +93,39 @@ h2 { color: #333; }
 <input type="text" id="bankIfsc" placeholder="Bank IFSC Code">
 <input type="text" id="bankName" placeholder="Account Holder Name">
 <input type="number" id="commission" placeholder="Commission %" value="10">
-<button class="green" onclick="addVendor()">Add Vendor</button>
+<button class="btn btn-green" id="addBtn">Add Vendor</button>
 </div>
 <div class="card">
 <h2>Vendors List</h2>
-<div id="vendorsList"></div>
-<button onclick="loadVendors()">Refresh List</button>
+<div id="vendorsList">Loading...</div>
+<button class="btn" id="refreshBtn">Refresh List</button>
 </div>
 </div>
 <script>
-let pwd = '';
-function login() {
-  pwd = document.getElementById('password').value;
-  fetch('/admin/vendors', { headers: { 'x-admin-password': pwd } })
-    .then(r => r.json()).then(data => {
-      if (data.error) { alert('Wrong password!'); return; }
-      document.getElementById('panel').style.display = 'block';
-      showVendors(data);
-    });
-}
-function loadVendors() {
-  fetch('/admin/vendors', { headers: { 'x-admin-password': pwd } })
-    .then(r => r.json()).then(data => showVendors(data));
-}
-function showVendors(data) {
-  const div = document.getElementById('vendorsList');
-  if (Object.keys(data).length === 0) { div.innerHTML = '<p>No vendors yet!</p>'; return; }
-  div.innerHTML = Object.entries(data).map(([id, v]) =>
-    '<div class="vendor-card">' +
-    '<h3>' + v.name + '</h3>' +
-    '<p>ID: ' + id + '</p>' +
-    '<p>Commission: ' + v.commission + '%</p>' +
-    '<p>Bank: ' + v.bank_account + '</p>' +
-    (v.payment_link ? '<div class="qr-box">Payment Link: <a href="' + v.payment_link + '" target="_blank">' + v.payment_link + '</a></div>' : '') +
-    '<button class="orange" onclick="generateQR(\'' + id + '\')">Generate QR Link</button>' +
-    '<button class="red" onclick="deleteVendor(\'' + id + '\')">Delete</button>' +
-    '</div>'
-  ).join('');
-}
-function addVendor() {
-  const data = {
+var pwd = '';
+
+document.getElementById('loginBtn').addEventListener('click', function() {
+  pwd = document.getElementById('pwd').value;
+  fetch('/admin/vendors', {
+    headers: { 'x-admin-password': pwd }
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    if (data.error) {
+      alert('Wrong password!');
+      return;
+    }
+    document.getElementById('loginCard').style.display = 'none';
+    document.getElementById('panel').style.display = 'block';
+    showVendors(data);
+  })
+  .catch(function(e) {
+    alert('Error: ' + e.message);
+  });
+});
+
+document.getElementById('addBtn').addEventListener('click', function() {
+  var data = {
     vendorId: document.getElementById('vendorId').value,
     name: document.getElementById('vendorName').value,
     blynk_token: document.getElementById('blynkToken').value,
@@ -147,68 +138,143 @@ function addVendor() {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-admin-password': pwd },
     body: JSON.stringify(data)
-  }).then(r => r.json()).then(res => {
-    if (res.success) { alert('Vendor added!'); loadVendors(); }
-    else alert('Error: ' + res.error);
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(res) {
+    if (res.success) {
+      alert('Vendor added!');
+      loadVendors();
+    } else {
+      alert('Error: ' + res.error);
+    }
+  });
+});
+
+document.getElementById('refreshBtn').addEventListener('click', function() {
+  loadVendors();
+});
+
+function loadVendors() {
+  fetch('/admin/vendors', { headers: { 'x-admin-password': pwd } })
+  .then(function(r) { return r.json(); })
+  .then(function(data) { showVendors(data); });
+}
+
+function showVendors(data) {
+  var div = document.getElementById('vendorsList');
+  var keys = Object.keys(data);
+  if (keys.length === 0) {
+    div.innerHTML = '<p>No vendors yet!</p>';
+    return;
+  }
+  var html = '';
+  keys.forEach(function(id) {
+    var v = data[id];
+    html += '<div class="vc">';
+    html += '<h3>' + v.name + '</h3>';
+    html += '<p>ID: ' + id + '</p>';
+    html += '<p>Commission: ' + v.commission + '%</p>';
+    html += '<p>Bank: ' + v.bank_account + '</p>';
+    if (v.payment_link) {
+      html += '<div class="qb">Payment Link: <a href="' + v.payment_link + '" target="_blank">' + v.payment_link + '</a></div>';
+    }
+    html += '<button class="btn btn-orange" data-id="' + id + '" data-action="qr">Generate QR Link</button>';
+    html += '<button class="btn btn-red" data-id="' + id + '" data-action="del">Delete</button>';
+    html += '</div>';
+  });
+  div.innerHTML = html;
+
+  div.querySelectorAll('button[data-action="qr"]').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      generateQR(this.getAttribute('data-id'));
+    });
+  });
+
+  div.querySelectorAll('button[data-action="del"]').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      deleteVendor(this.getAttribute('data-id'));
+    });
   });
 }
+
 function generateQR(vendorId) {
   fetch('/admin/vendors/generate-links', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-admin-password': pwd },
-    body: JSON.stringify({ vendorId })
-  }).then(r => r.json()).then(res => {
-    if (res.success) { alert('QR Link generated!'); loadVendors(); }
-    else alert('Error: ' + res.error);
+    body: JSON.stringify({ vendorId: vendorId })
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(res) {
+    if (res.success) {
+      alert('QR Link generated!');
+      loadVendors();
+    } else {
+      alert('Error: ' + res.error);
+    }
   });
 }
+
 function deleteVendor(id) {
   if (!confirm('Delete vendor ' + id + '?')) return;
   fetch('/admin/vendors/delete', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-admin-password': pwd },
     body: JSON.stringify({ vendorId: id })
-  }).then(r => r.json()).then(res => {
-    if (res.success) { alert('Deleted!'); loadVendors(); }
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(res) {
+    if (res.success) {
+      alert('Deleted!');
+      loadVendors();
+    }
   });
 }
 </script>
 </body>
-</html>
-  `);
+</html>`;
+
+app.get('/admin', function(req, res) {
+  res.send(adminHTML);
 });
 
-app.get('/admin/vendors', (req, res) => {
+app.get('/admin/vendors', function(req, res) {
   if (req.headers['x-admin-password'] !== ADMIN_PASSWORD) {
     return res.json({ error: 'Unauthorized' });
   }
   res.json(vendors);
 });
 
-app.post('/admin/vendors/add', (req, res) => {
+app.post('/admin/vendors/add', function(req, res) {
   if (req.headers['x-admin-password'] !== ADMIN_PASSWORD) {
     return res.json({ success: false, error: 'Unauthorized' });
   }
-  const { vendorId, name, blynk_token, bank_account, bank_ifsc, bank_name, commission } = req.body;
-  if (!vendorId || !name || !blynk_token) {
+  var b = req.body;
+  if (!b.vendorId || !b.name || !b.blynk_token) {
     return res.json({ success: false, error: 'Missing fields' });
   }
-  vendors[vendorId] = { name, blynk_token, bank_account, bank_ifsc, bank_name, commission };
-  console.log('Vendor added:', vendorId);
+  vendors[b.vendorId] = {
+    name: b.name,
+    blynk_token: b.blynk_token,
+    bank_account: b.bank_account,
+    bank_ifsc: b.bank_ifsc,
+    bank_name: b.bank_name,
+    commission: b.commission
+  };
+  console.log('Vendor added:', b.vendorId);
   res.json({ success: true });
 });
 
-app.post('/admin/vendors/generate-links', async (req, res) => {
+app.post('/admin/vendors/generate-links', async function(req, res) {
   if (req.headers['x-admin-password'] !== ADMIN_PASSWORD) {
     return res.json({ success: false, error: 'Unauthorized' });
   }
-  const { vendorId } = req.body;
-  const vendor = vendors[vendorId];
+  var vendorId = req.body.vendorId;
+  var vendor = vendors[vendorId];
   if (!vendor) {
     return res.json({ success: false, error: 'Vendor not found' });
   }
   try {
-    const link = await razorpay.paymentLink.create({
+    var link = await razorpay.paymentLink.create({
       amount: 0,
       currency: 'INR',
       description: 'Water - ' + vendorId,
@@ -216,7 +282,7 @@ app.post('/admin/vendors/generate-links', async (req, res) => {
       reminder_enable: false
     });
     vendors[vendorId].payment_link = link.short_url;
-    console.log('Link created for vendor:', vendorId, link.short_url);
+    console.log('Link created:', vendorId, link.short_url);
     res.json({ success: true });
   } catch (err) {
     console.log('Generate link error:', err.message);
@@ -224,7 +290,7 @@ app.post('/admin/vendors/generate-links', async (req, res) => {
   }
 });
 
-app.post('/admin/vendors/delete', (req, res) => {
+app.post('/admin/vendors/delete', function(req, res) {
   if (req.headers['x-admin-password'] !== ADMIN_PASSWORD) {
     return res.json({ success: false, error: 'Unauthorized' });
   }
@@ -232,41 +298,43 @@ app.post('/admin/vendors/delete', (req, res) => {
   res.json({ success: true });
 });
 
-app.post('/webhook', async (req, res) => {
+app.post('/webhook', async function(req, res) {
   try {
-    const secret = RAZORPAY_KEY_SECRET;
-    const signature = req.headers['x-razorpay-signature'];
-    const body = JSON.stringify(req.body);
-    const expected = crypto.createHmac('sha256', secret).update(body).digest('hex');
+    var secret = RAZORPAY_KEY_SECRET;
+    var signature = req.headers['x-razorpay-signature'];
+    var body = JSON.stringify(req.body);
+    var expected = crypto.createHmac('sha256', secret).update(body).digest('hex');
     if (signature !== expected) {
       return res.status(400).json({ error: 'Invalid signature' });
     }
-    const event = req.body.event;
+    var event = req.body.event;
     if (event === 'payment.captured') {
-      const payment = req.body.payload.payment.entity;
-      const paymentId = payment.id;
-      const amount = payment.amount;
-      const vendorId = payment.notes && payment.notes.vendor_id;
-      const timeoutSeconds = 60;
+      var payment = req.body.payload.payment.entity;
+      var paymentId = payment.id;
+      var amount = payment.amount;
+      var vendorId = payment.notes && payment.notes.vendor_id;
+      var timeoutSeconds = 60;
       console.log('Payment:', paymentId, 'Amount:', amount, 'Vendor:', vendorId);
-      const vpin = AMOUNT_PIN_MAP[amount];
+      var vpin = AMOUNT_PIN_MAP[amount];
       if (!vpin) {
         console.log('Wrong amount! Refunding:', amount);
-        setTimeout(async () => { await doRefund(paymentId, vendorId); }, 2000);
+        setTimeout(async function() { await doRefund(paymentId, vendorId); }, 2000);
         return res.json({ status: 'ok' });
       }
-      const vendor = vendors[vendorId];
+      var vendor = vendors[vendorId];
       if (!vendor) {
         console.log('Vendor not found! Refunding:', vendorId);
-        setTimeout(async () => { await doRefund(paymentId, vendorId); }, 2000);
+        setTimeout(async function() { await doRefund(paymentId, vendorId); }, 2000);
         return res.json({ status: 'ok' });
       }
-      lastPayments[paymentId] = { vendorId, amount, vpin };
+      lastPayments[paymentId] = { vendorId: vendorId, amount: amount, vpin: vpin };
       await triggerBlynk(vendor.blynk_token, vpin, '1');
       await triggerBlynk(vendor.blynk_token, 'V8', 'Payment OK!');
       console.log('Triggered:', vpin, 'for vendor:', vendorId);
-      refundTimers[paymentId] = setTimeout(() => {
-        if (lastPayments[paymentId]) { doRefund(paymentId, vendorId); }
+      refundTimers[paymentId] = setTimeout(async function() {
+        if (lastPayments[paymentId]) {
+          await doRefund(paymentId, vendorId);
+        }
       }, timeoutSeconds * 1000);
     }
     res.json({ status: 'ok' });
@@ -276,11 +344,11 @@ app.post('/webhook', async (req, res) => {
   }
 });
 
-app.post('/success', async (req, res) => {
+app.post('/success', async function(req, res) {
   try {
-    const { vendorId } = req.body;
+    var vendorId = req.body.vendorId;
     console.log('Relay ON success:', vendorId);
-    Object.keys(refundTimers).forEach(paymentId => {
+    Object.keys(refundTimers).forEach(function(paymentId) {
       if (lastPayments[paymentId] && lastPayments[paymentId].vendorId === vendorId) {
         clearTimeout(refundTimers[paymentId]);
         delete refundTimers[paymentId];
@@ -288,7 +356,7 @@ app.post('/success', async (req, res) => {
         console.log('Refund timer cancelled');
       }
     });
-    const vendor = vendors[vendorId];
+    var vendor = vendors[vendorId];
     if (vendor) {
       await triggerBlynk(vendor.blynk_token, 'V8', 'Water dispensing...');
     }
@@ -298,7 +366,11 @@ app.post('/success', async (req, res) => {
   }
 });
 
-app.get('/', (req, res) => res.send('Water Vending Server Running!'));
+app.get('/', function(req, res) {
+  res.send('Water Vending Server Running!');
+});
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log('Server running on port ' + PORT));
+var PORT = process.env.PORT || 3000;
+app.listen(PORT, function() {
+  console.log('Server running on port ' + PORT);
+});
