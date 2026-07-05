@@ -58,6 +58,57 @@ async function doRefund(paymentId, vendorId) {
   }
 }
 
+// Payment page for each vendor
+app.get('/pay/:vendorId', function(req, res) {
+  var vendorId = req.params.vendorId;
+  var vendor = vendors[vendorId];
+  if (!vendor) {
+    return res.send('<h2>Vendor not found!</h2>');
+  }
+  res.send(`<!DOCTYPE html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Water Payment</title>
+<style>
+body{font-family:Arial;padding:20px;background:#e3f2fd;text-align:center}
+h2{color:#1565c0}
+.btn{background:#2196F3;color:white;padding:15px;border:none;border-radius:10px;width:100%;font-size:18px;cursor:pointer;margin:10px 0}
+.btn:hover{background:#1976D2}
+p{color:#555}
+</style>
+<script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+</head>
+<body>
+<h2>💧 Water Vending</h2>
+<p>Select water quantity:</p>
+<button class="btn" onclick="pay(100)">₹1 - Option A</button>
+<button class="btn" onclick="pay(200)">₹2 - Option B</button>
+<button class="btn" onclick="pay(300)">₹3 - Option C</button>
+<button class="btn" onclick="pay(400)">₹4 - Option D</button>
+<script>
+function pay(amount) {
+  var options = {
+    key: '${RAZORPAY_KEY_ID}',
+    amount: amount,
+    currency: 'INR',
+    name: 'Water Vending',
+    description: 'Water Payment',
+    notes: { vendor_id: '${vendorId}' },
+    handler: function(response) {
+      document.body.innerHTML = '<h2>✅ Payment Successful!</h2><p>Water dispensing...</p>';
+    },
+    prefill: { contact: '', email: '' },
+    theme: { color: '#2196F3' }
+  };
+  var rzp = new Razorpay(options);
+  rzp.open();
+}
+</script>
+</body>
+</html>`);
+});
+
 const adminHTML = `<!DOCTYPE html>
 <html>
 <head>
@@ -74,8 +125,7 @@ input{width:100%;padding:10px;margin:5px 0 15px 0;border:1px solid #ddd;border-r
 h2{color:#333}
 .vc{background:#e3f2fd;padding:15px;border-radius:8px;margin-bottom:10px}
 .vc h3{margin:0 0 10px 0;color:#1565c0}
-.qb{background:#f5f5f5;padding:10px;border-radius:5px;margin-top:10px;word-break:break-all;font-size:12px}
-img{max-width:200px;margin-top:10px}
+.qb{background:#f5f5f5;padding:10px;border-radius:5px;margin-top:10px;word-break:break-all;font-size:14px}
 </style>
 </head>
 <body>
@@ -150,36 +200,19 @@ function showVendors(data) {
   var html = '';
   keys.forEach(function(id) {
     var v = data[id];
+    var payLink = 'https://water-vending-server.onrender.com/pay/' + id;
     html += '<div class="vc">';
     html += '<h3>' + v.name + '</h3>';
     html += '<p>ID: ' + id + '</p>';
     html += '<p>Commission: ' + v.commission + '%</p>';
     html += '<p>Bank: ' + v.bank_account + '</p>';
-    if (v.qr_image) {
-      html += '<div class="qb"><p>QR Code:</p><img src="' + v.qr_image + '" alt="QR Code"><br><a href="' + v.qr_image + '" target="_blank">Download QR</a></div>';
-    }
-    html += '<button class="btn btn-orange" data-id="' + id + '" data-action="qr">Generate QR Code</button>';
+    html += '<div class="qb">Payment Page: <a href="' + payLink + '" target="_blank">' + payLink + '</a></div>';
     html += '<button class="btn btn-red" data-id="' + id + '" data-action="del">Delete</button>';
     html += '</div>';
   });
   div.innerHTML = html;
-  div.querySelectorAll('button[data-action="qr"]').forEach(function(btn) {
-    btn.addEventListener('click', function() { generateQR(this.getAttribute('data-id')); });
-  });
   div.querySelectorAll('button[data-action="del"]').forEach(function(btn) {
     btn.addEventListener('click', function() { deleteVendor(this.getAttribute('data-id')); });
-  });
-}
-function generateQR(vendorId) {
-  fetch('/admin/vendors/generate-qr', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'x-admin-password': pwd },
-    body: JSON.stringify({ vendorId: vendorId })
-  })
-  .then(function(r) { return r.json(); })
-  .then(function(res) {
-    if (res.success) { alert('QR Code generated!'); loadVendors(); }
-    else alert('Error: ' + res.error);
   });
 }
 function deleteVendor(id) {
@@ -208,7 +241,6 @@ app.get('/admin/vendors', function(req, res) {
 });
 
 app.post('/admin/vendors/add', function(req, res) {
-  
   if (req.headers['x-admin-password'] !== ADMIN_PASSWORD) {
     return res.json({ success: false, error: 'Unauthorized' });
   }
@@ -226,43 +258,6 @@ app.post('/admin/vendors/add', function(req, res) {
   };
   console.log('Vendor added:', b.vendorId);
   res.json({ success: true });
-});
-
-app.post('/admin/vendors/generate-qr', async function(req, res) {
-  if (req.headers['x-admin-password'] !== ADMIN_PASSWORD) {
-    return res.json({ success: false, error: 'Unauthorized' });
-  }
-  var vendorId = req.body.vendorId;
-  var vendor = vendors[vendorId];
-  if (!vendor) {
-    return res.json({ success: false, error: 'Vendor not found' });
-  }
-  try {
-    var response = await axios.post(
-  'https://api.razorpay.com/v1/qr-codes',
-  {
-    type: 'upi_qr',
-    name: vendorId,
-    usage: 'multiple_use',
-    fixed_amount: false,
-    description: 'Water - ' + vendorId,
-    notes: { vendor_id: vendorId }
-  },
-  {
-    auth: {
-      username: RAZORPAY_KEY_ID,
-      password: RAZORPAY_KEY_SECRET
-    }
-  }
-);
-    vendors[vendorId].qr_image = response.data.image_url;
-    vendors[vendorId].qr_id = response.data.id;
-    console.log('QR created:', vendorId, response.data.id);
-    res.json({ success: true });
-  } catch (err) {
-    console.log('QR error:', err.response ? JSON.stringify(err.response.data) : err.message);
-    res.json({ success: false, error: err.response ? JSON.stringify(err.response.data) : err.message });
-  }
 });
 
 app.post('/admin/vendors/delete', function(req, res) {
