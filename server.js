@@ -117,8 +117,8 @@ p{color:#888;font-size:14px;margin-bottom:20px}
 <body>
 <div class="card">
 <div class="icon">💧</div>
-<h2>Water Vending</h2>
-<p>Amount select చేయండి</p>
+<h2>SOL Water Vending</h2>
+<p>Please select Amount or Enter</p>
 <div class="amounts">
   <button class="amt-btn" onclick="selectAmt(this,100)">1L-1RS</button>
   <button class="amt-btn" onclick="selectAmt(this,200)">2L-2RS</button>
