@@ -34,20 +34,23 @@ function getToday() {
   return new Date().toISOString().split('T')[0];
 }
 
-function recordTransaction(vendorId, paymentId, amount, status) {
+function recordTransaction(vendorId, paymentId, amountRupees, status) {
   var date = getToday();
   if (!transactions[vendorId]) transactions[vendorId] = {};
   if (!transactions[vendorId][date]) transactions[vendorId][date] = [];
   var vendor = vendors[vendorId];
-  var commission = vendor ? Math.round(amount * vendor.commission / 100) : 0;
+  var commissionPct = vendor ? parseInt(vendor.commission) : 10;
+  var commission = Math.round(amountRupees * commissionPct / 100);
+  var vendorAmount = amountRupees - commission;
   transactions[vendorId][date].push({
     paymentId: paymentId,
-    amount: amount,
+    amount: amountRupees,
     commission: commission,
-    vendorAmount: amount - commission,
+    vendorAmount: vendorAmount,
     status: status,
     time: new Date().toLocaleTimeString('en-IN')
   });
+  console.log('Transaction recorded:', vendorId, amountRupees, 'Commission:', commission);
 }
 
 async function triggerBlynk(token, pin, value) {
@@ -63,9 +66,10 @@ async function triggerBlynk(token, pin, value) {
 async function doRefund(paymentId, vendorId) {
   try {
     console.log('Refunding:', paymentId);
+    var amountRupees = lastPayments[paymentId] ? lastPayments[paymentId].amount / 100 : 0;
     const refund = await razorpay.payments.refund(paymentId, {});
     console.log('Refund success:', refund.id);
-    recordTransaction(vendorId, paymentId, lastPayments[paymentId] ? lastPayments[paymentId].amount / 100 : 0, 'Refunded');
+    recordTransaction(vendorId, paymentId, amountRupees, 'Refunded');
     const vendor = vendors[vendorId];
     if (vendor) {
       await triggerBlynk(vendor.blynk_token, 'V8', 'Refunded!');
@@ -303,10 +307,10 @@ function showVendors(data) {
     html += '<div class="vc">';
     html += '<h3>' + v.name + '</h3>';
     html += '<p>ID: ' + id + ' | Commission: ' + v.commission + '%</p>';
-    html += '<p>Bank: ' + v.bank_account + '</p>';
+    html += '<p>Bank: ' + v.bank_account + ' | IFSC: ' + v.bank_ifsc + '</p>';
     html += '<div class="qb">';
     html += '<img src="' + qrLink + '" style="max-width:200px;margin:10px 0"><br>';
-    html += '<a href="' + qrLink + '" download="qr_' + id + '.png">⬇️ Download QR</a>';
+    html += '<a href="' + qrLink + '" download="qr_' + id + '.png">Download QR</a>';
     html += '</div>';
     html += '<button class="btn btn-red" data-id="' + id + '" data-action="del">Delete</button>';
     html += '</div>';
@@ -333,15 +337,15 @@ function showReport(data, vendorId, date) {
     totalVendor += t.vendorAmount;
     rows += '<tr>';
     rows += '<td>' + t.time + '</td>';
-    rows += '<td>' + t.paymentId + '</td>';
+    rows += '<td style="font-size:11px">' + t.paymentId + '</td>';
     rows += '<td>Rs.' + t.amount + '</td>';
     rows += '<td>Rs.' + t.commission + '</td>';
     rows += '<td>Rs.' + t.vendorAmount + '</td>';
     rows += '<td class="status-' + t.status.toLowerCase() + '">' + t.status + '</td>';
     rows += '</tr>';
   });
-  div.innerHTML = '<h3 style="margin:15px 0 10px">Report: ' + vendorId + ' - ' + date + '</h3>' +
-    '<table><thead><tr><th>Time</th><th>Payment ID</th><th>Amount</th><th>Commission</th><th>Vendor Amount</th><th>Status</th></tr></thead>' +
+  div.innerHTML = '<h3 style="margin:15px 0 10px">' + vendorId + ' - ' + date + '</h3>' +
+    '<table><thead><tr><th>Time</th><th>Payment ID</th><th>Amount</th><th>My Commission</th><th>Vendor Amount</th><th>Status</th></tr></thead>' +
     '<tbody>' + rows +
     '<tr class="total-row"><td colspan="2">TOTAL</td><td>Rs.' + totalAmount + '</td><td>Rs.' + totalCommission + '</td><td>Rs.' + totalVendor + '</td><td></td></tr>' +
     '</tbody></table>';
@@ -432,12 +436,14 @@ app.post('/webhook', async function(req, res) {
       var vpin = AMOUNT_PIN_MAP[amount];
       if (!vpin) {
         console.log('Wrong amount! Refunding:', amount);
+        lastPayments[paymentId] = { vendorId: vendorId, amount: amount };
         setTimeout(async function() { await doRefund(paymentId, vendorId); }, 2000);
         return res.json({ status: 'ok' });
       }
       var vendor = vendors[vendorId];
       if (!vendor) {
         console.log('Vendor not found! Refunding:', vendorId);
+        lastPayments[paymentId] = { vendorId: vendorId, amount: amount };
         setTimeout(async function() { await doRefund(paymentId, vendorId); }, 2000);
         return res.json({ status: 'ok' });
       }
@@ -462,12 +468,12 @@ app.post('/success', async function(req, res) {
     console.log('Relay ON success:', vendorId);
     Object.keys(refundTimers).forEach(function(paymentId) {
       if (lastPayments[paymentId] && lastPayments[paymentId].vendorId === vendorId) {
-        var amt = lastPayments[paymentId].amount / 100;
-        recordTransaction(vendorId, paymentId, amt, 'Success');
+        var amountRupees = lastPayments[paymentId].amount / 100;
+        recordTransaction(vendorId, paymentId, amountRupees, 'Success');
         clearTimeout(refundTimers[paymentId]);
         delete refundTimers[paymentId];
         delete lastPayments[paymentId];
-        console.log('Refund timer cancelled - Transaction recorded');
+        console.log('Transaction recorded - amount:', amountRupees);
       }
     });
     var vendor = vendors[vendorId];
