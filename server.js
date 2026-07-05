@@ -2,6 +2,7 @@ const express = require('express');
 const Razorpay = require('razorpay');
 const crypto = require('crypto');
 const axios = require('axios');
+const { MongoClient } = require('mongodb');
 
 const app = express();
 app.use(express.json());
@@ -10,6 +11,7 @@ app.use(express.urlencoded({ extended: true }));
 const RAZORPAY_KEY_ID = process.env.RAZORPAY_KEY_ID;
 const RAZORPAY_KEY_SECRET = process.env.RAZORPAY_KEY_SECRET;
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123';
+const MONGODB_URI = process.env.MONGODB_URI;
 
 const razorpay = new Razorpay({
   key_id: RAZORPAY_KEY_ID,
@@ -25,31 +27,54 @@ const AMOUNT_PIN_MAP = {
   400: 'V4'
 };
 
+let db = null;
 let vendors = {};
 let lastPayments = {};
 let refundTimers = {};
-let transactions = {};
+
+// MongoDB connect
+async function connectDB() {
+  try {
+    const client = new MongoClient(MONGODB_URI);
+    await client.connect();
+    db = client.db('water_vending');
+    console.log('MongoDB connected!');
+    // Load vendors from DB
+    const vendorDocs = await db.collection('vendors').find({}).toArray();
+    vendorDocs.forEach(function(v) {
+      vendors[v.vendorId] = v;
+    });
+    console.log('Vendors loaded:', Object.keys(vendors).length);
+  } catch (err) {
+    console.log('MongoDB error:', err.message);
+  }
+}
+
+connectDB();
 
 function getToday() {
   return new Date().toISOString().split('T')[0];
 }
 
-function recordTransaction(vendorId, paymentId, amountRupees, status) {
-  var date = getToday();
-  if (!transactions[vendorId]) transactions[vendorId] = {};
-  if (!transactions[vendorId][date]) transactions[vendorId][date] = [];
+async function recordTransaction(vendorId, paymentId, amountRupees, status) {
   var vendor = vendors[vendorId];
   var commissionPct = vendor ? parseInt(vendor.commission) : 10;
   var commission = Math.round(amountRupees * commissionPct / 100);
   var vendorAmount = amountRupees - commission;
-  transactions[vendorId][date].push({
+  var txn = {
+    vendorId: vendorId,
     paymentId: paymentId,
     amount: amountRupees,
     commission: commission,
     vendorAmount: vendorAmount,
     status: status,
-    time: new Date().toLocaleTimeString('en-IN')
-  });
+    date: getToday(),
+    time: new Date().toLocaleTimeString('en-IN'),
+    createdAt: new Date()
+  };
+  if (db) {
+    await db.collection('transactions').insertOne(txn);
+  }
   console.log('Transaction recorded:', vendorId, amountRupees, 'Commission:', commission);
 }
 
@@ -69,7 +94,7 @@ async function doRefund(paymentId, vendorId) {
     var amountRupees = lastPayments[paymentId] ? lastPayments[paymentId].amount / 100 : 0;
     const refund = await razorpay.payments.refund(paymentId, {});
     console.log('Refund success:', refund.id);
-    recordTransaction(vendorId, paymentId, amountRupees, 'Refunded');
+    await recordTransaction(vendorId, paymentId, amountRupees, 'Refunded');
     const vendor = vendors[vendorId];
     if (vendor) {
       await triggerBlynk(vendor.blynk_token, 'V8', 'Refunded!');
@@ -117,13 +142,13 @@ p{color:#888;font-size:14px;margin-bottom:20px}
 <body>
 <div class="card">
 <div class="icon">💧</div>
-<h2>SOL Water Vending</h2>
-<p>Please select Amount or Enter</p>
+<h2>Water Vending</h2>
+<p>Amount select చేయండి</p>
 <div class="amounts">
-  <button class="amt-btn" onclick="selectAmt(this,100)">1L-1RS</button>
-  <button class="amt-btn" onclick="selectAmt(this,200)">2L-2RS</button>
-  <button class="amt-btn" onclick="selectAmt(this,300)">3L-3RS</button>
-  <button class="amt-btn" onclick="selectAmt(this,400)">4L-4RS</button>
+  <button class="amt-btn" onclick="selectAmt(this,100)">Rs.1</button>
+  <button class="amt-btn" onclick="selectAmt(this,200)">Rs.2</button>
+  <button class="amt-btn" onclick="selectAmt(this,300)">Rs.3</button>
+  <button class="amt-btn" onclick="selectAmt(this,400)">Rs.4</button>
 </div>
 <input class="custom-input" type="number" id="amt" placeholder="Amount in Rupees" oninput="clearSelected()">
 <button class="pay-btn" onclick="pay()">Pay Now</button>
@@ -198,7 +223,6 @@ tr:nth-child(even){background:#f5f5f5}
 <button class="btn" id="loginBtn">Login</button>
 </div>
 <div id="panel" style="display:none">
-
 <div class="card">
 <h2>Add New Vendor</h2>
 <input type="text" id="vendorId" placeholder="Vendor ID (ex: vendor_001)">
@@ -210,13 +234,11 @@ tr:nth-child(even){background:#f5f5f5}
 <input type="number" id="commission" placeholder="Commission %" value="10">
 <button class="btn btn-green" id="addBtn">Add Vendor</button>
 </div>
-
 <div class="card">
 <h2>Vendors List</h2>
 <div id="vendorsList">Loading...</div>
 <button class="btn" id="refreshBtn">Refresh</button>
 </div>
-
 <div class="card">
 <h2>Transactions Report</h2>
 <select id="vendorSelect"><option value="">Select Vendor</option></select>
@@ -224,7 +246,6 @@ tr:nth-child(even){background:#f5f5f5}
 <button class="btn" id="reportBtn">View Report</button>
 <div id="reportDiv"></div>
 </div>
-
 </div>
 <script>
 var pwd = '';
@@ -242,7 +263,6 @@ document.getElementById('loginBtn').addEventListener('click', function() {
   })
   .catch(function(e) { alert('Error: ' + e.message); });
 });
-
 document.getElementById('addBtn').addEventListener('click', function() {
   var data = {
     vendorId: document.getElementById('vendorId').value,
@@ -264,9 +284,7 @@ document.getElementById('addBtn').addEventListener('click', function() {
     else alert('Error: ' + res.error);
   });
 });
-
 document.getElementById('refreshBtn').addEventListener('click', function() { loadVendors(); });
-
 document.getElementById('reportBtn').addEventListener('click', function() {
   var vendorId = document.getElementById('vendorSelect').value;
   var date = document.getElementById('reportDate').value;
@@ -277,16 +295,11 @@ document.getElementById('reportBtn').addEventListener('click', function() {
   .then(function(r) { return r.json(); })
   .then(function(data) { showReport(data, vendorId, date); });
 });
-
 function loadVendors() {
   fetch('/admin/vendors', { headers: { 'x-admin-password': pwd } })
   .then(function(r) { return r.json(); })
-  .then(function(data) {
-    showVendors(data);
-    populateVendorSelect(data);
-  });
+  .then(function(data) { showVendors(data); populateVendorSelect(data); });
 }
-
 function populateVendorSelect(data) {
   var sel = document.getElementById('vendorSelect');
   sel.innerHTML = '<option value="">Select Vendor</option>';
@@ -294,7 +307,6 @@ function populateVendorSelect(data) {
     sel.innerHTML += '<option value="' + entry[0] + '">' + entry[1].name + '</option>';
   });
 }
-
 function showVendors(data) {
   var div = document.getElementById('vendorsList');
   var keys = Object.keys(data);
@@ -308,10 +320,8 @@ function showVendors(data) {
     html += '<h3>' + v.name + '</h3>';
     html += '<p>ID: ' + id + ' | Commission: ' + v.commission + '%</p>';
     html += '<p>Bank: ' + v.bank_account + ' | IFSC: ' + v.bank_ifsc + '</p>';
-    html += '<div class="qb">';
-    html += '<img src="' + qrLink + '" style="max-width:200px;margin:10px 0"><br>';
-    html += '<a href="' + qrLink + '" download="qr_' + id + '.png">Download QR</a>';
-    html += '</div>';
+    html += '<div class="qb"><img src="' + qrLink + '" style="max-width:200px;margin:10px 0"><br>';
+    html += '<a href="' + qrLink + '" download="qr_' + id + '.png">Download QR</a></div>';
     html += '<button class="btn btn-red" data-id="' + id + '" data-action="del">Delete</button>';
     html += '</div>';
   });
@@ -320,29 +330,22 @@ function showVendors(data) {
     btn.addEventListener('click', function() { deleteVendor(this.getAttribute('data-id')); });
   });
 }
-
 function showReport(data, vendorId, date) {
   var div = document.getElementById('reportDiv');
   if (!data || data.length === 0) {
     div.innerHTML = '<p style="margin-top:10px;color:#888">No transactions found!</p>';
     return;
   }
-  var totalAmount = 0;
-  var totalCommission = 0;
-  var totalVendor = 0;
+  var totalAmount = 0, totalCommission = 0, totalVendor = 0;
   var rows = '';
   data.forEach(function(t) {
     totalAmount += t.amount;
     totalCommission += t.commission;
     totalVendor += t.vendorAmount;
-    rows += '<tr>';
-    rows += '<td>' + t.time + '</td>';
-    rows += '<td style="font-size:11px">' + t.paymentId + '</td>';
-    rows += '<td>Rs.' + t.amount + '</td>';
-    rows += '<td>Rs.' + t.commission + '</td>';
+    rows += '<tr><td>' + t.time + '</td><td style="font-size:11px">' + t.paymentId + '</td>';
+    rows += '<td>Rs.' + t.amount + '</td><td>Rs.' + t.commission + '</td>';
     rows += '<td>Rs.' + t.vendorAmount + '</td>';
-    rows += '<td class="status-' + t.status.toLowerCase() + '">' + t.status + '</td>';
-    rows += '</tr>';
+    rows += '<td class="status-' + t.status.toLowerCase() + '">' + t.status + '</td></tr>';
   });
   div.innerHTML = '<h3 style="margin:15px 0 10px">' + vendorId + ' - ' + date + '</h3>' +
     '<table><thead><tr><th>Time</th><th>Payment ID</th><th>Amount</th><th>My Commission</th><th>Vendor Amount</th><th>Status</th></tr></thead>' +
@@ -350,7 +353,6 @@ function showReport(data, vendorId, date) {
     '<tr class="total-row"><td colspan="2">TOTAL</td><td>Rs.' + totalAmount + '</td><td>Rs.' + totalCommission + '</td><td>Rs.' + totalVendor + '</td><td></td></tr>' +
     '</tbody></table>';
 }
-
 function deleteVendor(id) {
   if (!confirm('Delete vendor ' + id + '?')) return;
   fetch('/admin/vendors/delete', {
@@ -359,9 +361,7 @@ function deleteVendor(id) {
     body: JSON.stringify({ vendorId: id })
   })
   .then(function(r) { return r.json(); })
-  .then(function(res) {
-    if (res.success) { alert('Deleted!'); loadVendors(); }
-  });
+  .then(function(res) { if (res.success) { alert('Deleted!'); loadVendors(); } });
 }
 </script>
 </body>
@@ -369,26 +369,25 @@ function deleteVendor(id) {
 
 app.get('/admin', function(req, res) { res.send(adminHTML); });
 
-app.get('/admin/vendors', function(req, res) {
+app.get('/admin/vendors', async function(req, res) {
   if (req.headers['x-admin-password'] !== ADMIN_PASSWORD) {
     return res.json({ error: 'Unauthorized' });
   }
   res.json(vendors);
 });
 
-app.get('/admin/transactions', function(req, res) {
+app.get('/admin/transactions', async function(req, res) {
   if (req.headers['x-admin-password'] !== ADMIN_PASSWORD) {
     return res.json({ error: 'Unauthorized' });
   }
   var vendorId = req.query.vendorId;
   var date = req.query.date;
-  if (!transactions[vendorId] || !transactions[vendorId][date]) {
-    return res.json([]);
-  }
-  res.json(transactions[vendorId][date]);
+  if (!db) return res.json([]);
+  var txns = await db.collection('transactions').find({ vendorId: vendorId, date: date }).toArray();
+  res.json(txns);
 });
 
-app.post('/admin/vendors/add', function(req, res) {
+app.post('/admin/vendors/add', async function(req, res) {
   if (req.headers['x-admin-password'] !== ADMIN_PASSWORD) {
     return res.json({ success: false, error: 'Unauthorized' });
   }
@@ -396,7 +395,8 @@ app.post('/admin/vendors/add', function(req, res) {
   if (!b.vendorId || !b.name || !b.blynk_token) {
     return res.json({ success: false, error: 'Missing fields' });
   }
-  vendors[b.vendorId] = {
+  var vendorData = {
+    vendorId: b.vendorId,
     name: b.name,
     blynk_token: b.blynk_token,
     bank_account: b.bank_account,
@@ -404,15 +404,27 @@ app.post('/admin/vendors/add', function(req, res) {
     bank_name: b.bank_name,
     commission: parseInt(b.commission) || 10
   };
+  vendors[b.vendorId] = vendorData;
+  if (db) {
+    await db.collection('vendors').updateOne(
+      { vendorId: b.vendorId },
+      { $set: vendorData },
+      { upsert: true }
+    );
+  }
   console.log('Vendor added:', b.vendorId);
   res.json({ success: true });
 });
 
-app.post('/admin/vendors/delete', function(req, res) {
+app.post('/admin/vendors/delete', async function(req, res) {
   if (req.headers['x-admin-password'] !== ADMIN_PASSWORD) {
     return res.json({ success: false, error: 'Unauthorized' });
   }
-  delete vendors[req.body.vendorId];
+  var vendorId = req.body.vendorId;
+  delete vendors[vendorId];
+  if (db) {
+    await db.collection('vendors').deleteOne({ vendorId: vendorId });
+  }
   res.json({ success: true });
 });
 
@@ -466,14 +478,14 @@ app.post('/success', async function(req, res) {
   try {
     var vendorId = req.body.vendorId;
     console.log('Relay ON success:', vendorId);
-    Object.keys(refundTimers).forEach(function(paymentId) {
+    Object.keys(refundTimers).forEach(async function(paymentId) {
       if (lastPayments[paymentId] && lastPayments[paymentId].vendorId === vendorId) {
         var amountRupees = lastPayments[paymentId].amount / 100;
-        recordTransaction(vendorId, paymentId, amountRupees, 'Success');
+        await recordTransaction(vendorId, paymentId, amountRupees, 'Success');
         clearTimeout(refundTimers[paymentId]);
         delete refundTimers[paymentId];
         delete lastPayments[paymentId];
-        console.log('Transaction recorded - amount:', amountRupees);
+        console.log('Transaction recorded:', amountRupees);
       }
     });
     var vendor = vendors[vendorId];
