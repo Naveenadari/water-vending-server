@@ -58,7 +58,6 @@ async function doRefund(paymentId, vendorId) {
   }
 }
 
-// Payment page for each vendor
 app.get('/pay/:vendorId', function(req, res) {
   var vendorId = req.params.vendorId;
   var vendor = vendors[vendorId];
@@ -71,23 +70,55 @@ app.get('/pay/:vendorId', function(req, res) {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Water Payment</title>
 <style>
-body{font-family:Arial;padding:20px;background:#e3f2fd;text-align:center}
-h2{color:#1565c0}
-.btn{background:#2196F3;color:white;padding:15px;border:none;border-radius:10px;width:100%;font-size:18px;cursor:pointer;margin:10px 0}
-.btn:hover{background:#1976D2}
-p{color:#555}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Arial;background:linear-gradient(135deg,#1565c0,#42a5f5);min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
+.card{background:white;border-radius:20px;padding:30px;width:100%;max-width:350px;text-align:center;box-shadow:0 10px 30px rgba(0,0,0,0.2)}
+.icon{font-size:50px;margin-bottom:15px}
+h2{color:#1565c0;margin-bottom:5px;font-size:22px}
+p{color:#888;font-size:14px;margin-bottom:20px}
+.amounts{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin-bottom:20px}
+.amt-btn{background:#e3f2fd;color:#1565c0;border:2px solid #90caf9;border-radius:10px;padding:12px 20px;font-size:16px;font-weight:bold;cursor:pointer;transition:all 0.2s}
+.amt-btn.selected{background:#1565c0;color:white;border-color:#1565c0}
+.amt-btn:hover{background:#1565c0;color:white}
+.custom-input{width:100%;padding:15px;border:2px solid #ddd;border-radius:10px;font-size:18px;text-align:center;margin-bottom:20px;outline:none}
+.custom-input:focus{border-color:#1565c0}
+.pay-btn{background:#1565c0;color:white;border:none;border-radius:10px;padding:15px;width:100%;font-size:18px;font-weight:bold;cursor:pointer}
+.pay-btn:hover{background:#0d47a1}
+.hint{color:#aaa;font-size:12px;margin-top:10px}
 </style>
 <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
 </head>
 <body>
-<h2>💧 Water Vending</h2>
-<p>Select water quantity:</p>
-<button class="btn" onclick="pay(100)">₹1 - Option A</button>
-<button class="btn" onclick="pay(200)">₹2 - Option B</button>
-<button class="btn" onclick="pay(300)">₹3 - Option C</button>
-<button class="btn" onclick="pay(400)">₹4 - Option D</button>
+<div class="card">
+<div class="icon">💧</div>
+<h2>Water Vending</h2>
+<p>Amount enter చేయండి లేదా select చేయండి</p>
+<div class="amounts">
+  <button class="amt-btn" onclick="selectAmt(this,100)">Rs.1</button>
+  <button class="amt-btn" onclick="selectAmt(this,200)">Rs.2</button>
+  <button class="amt-btn" onclick="selectAmt(this,300)">Rs.3</button>
+  <button class="amt-btn" onclick="selectAmt(this,400)">Rs.4</button>
+</div>
+<input class="custom-input" type="number" id="amt" placeholder="Amount in Rupees" oninput="clearSelected()">
+<button class="pay-btn" onclick="pay()">Pay Now</button>
+<p class="hint">Valid amounts: Rs.1, Rs.2, Rs.3, Rs.4 only</p>
+</div>
 <script>
-function pay(amount) {
+var selectedAmt = 0;
+function selectAmt(btn, amt) {
+  document.querySelectorAll('.amt-btn').forEach(function(b){ b.classList.remove('selected'); });
+  btn.classList.add('selected');
+  selectedAmt = amt;
+  document.getElementById('amt').value = '';
+}
+function clearSelected() {
+  document.querySelectorAll('.amt-btn').forEach(function(b){ b.classList.remove('selected'); });
+  selectedAmt = 0;
+}
+function pay() {
+  var inputVal = document.getElementById('amt').value;
+  var amount = selectedAmt || (inputVal ? parseInt(inputVal) * 100 : 0);
+  if (!amount) { alert('Amount enter చేయండి!'); return; }
   var options = {
     key: '${RAZORPAY_KEY_ID}',
     amount: amount,
@@ -96,10 +127,10 @@ function pay(amount) {
     description: 'Water Payment',
     notes: { vendor_id: '${vendorId}' },
     handler: function(response) {
-      document.body.innerHTML = '<h2>✅ Payment Successful!</h2><p>Water dispensing...</p>';
+      document.body.innerHTML = '<div style="text-align:center;padding:50px;font-family:Arial"><div style="font-size:60px">✅</div><h2 style="color:#4CAF50;margin:20px 0">Payment Successful!</h2><p style="color:#888">Water dispensing...</p></div>';
     },
     prefill: { contact: '', email: '' },
-    theme: { color: '#2196F3' }
+    theme: { color: '#1565c0' }
   };
   var rzp = new Razorpay(options);
   rzp.open();
@@ -121,7 +152,6 @@ input{width:100%;padding:10px;margin:5px 0 15px 0;border:1px solid #ddd;border-r
 .btn{color:white;padding:12px 20px;border:none;border-radius:5px;width:100%;font-size:16px;cursor:pointer;margin-bottom:10px;background:#2196F3}
 .btn-red{background:#f44336}
 .btn-green{background:#4CAF50}
-.btn-orange{background:#FF9800}
 h2{color:#333}
 .vc{background:#e3f2fd;padding:15px;border-radius:8px;margin-bottom:10px}
 .vc h3{margin:0 0 10px 0;color:#1565c0}
@@ -201,13 +231,19 @@ function showVendors(data) {
   keys.forEach(function(id) {
     var v = data[id];
     var payLink = 'https://water-vending-server.onrender.com/pay/' + id;
+    var qrLink = 'https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=' + encodeURIComponent(payLink);
     html += '<div class="vc">';
     html += '<h3>' + v.name + '</h3>';
     html += '<p>ID: ' + id + '</p>';
     html += '<p>Commission: ' + v.commission + '%</p>';
     html += '<p>Bank: ' + v.bank_account + '</p>';
-    html += '<div class="qb">Payment Page: <a href="' + payLink + '" target="_blank">' + payLink + '</a></div>';
-    html += '<button class="btn btn-red" data-id="' + id + '" data-action="del">Delete</button>';
+    html += '<div class="qb">';
+    html += '<p>Payment Link: <a href="' + payLink + '" target="_blank">' + payLink + '</a></p>';
+    html += '<p>QR Code:</p>';
+    html += '<img src="' + qrLink + '" style="max-width:200px;margin:10px 0"><br>';
+    html += '<a href="' + qrLink + '" download="qr_' + id + '.png">Download QR</a>';
+    html += '</div>';
+    html += '<button class="btn btn-red" data-id="' + id + '" data-action="del">Delete Vendor</button>';
     html += '</div>';
   });
   div.innerHTML = html;
