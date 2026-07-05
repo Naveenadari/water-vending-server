@@ -28,6 +28,27 @@ const AMOUNT_PIN_MAP = {
 let vendors = {};
 let lastPayments = {};
 let refundTimers = {};
+let transactions = {};
+
+function getToday() {
+  return new Date().toISOString().split('T')[0];
+}
+
+function recordTransaction(vendorId, paymentId, amount, status) {
+  var date = getToday();
+  if (!transactions[vendorId]) transactions[vendorId] = {};
+  if (!transactions[vendorId][date]) transactions[vendorId][date] = [];
+  var vendor = vendors[vendorId];
+  var commission = vendor ? Math.round(amount * vendor.commission / 100) : 0;
+  transactions[vendorId][date].push({
+    paymentId: paymentId,
+    amount: amount,
+    commission: commission,
+    vendorAmount: amount - commission,
+    status: status,
+    time: new Date().toLocaleTimeString('en-IN')
+  });
+}
 
 async function triggerBlynk(token, pin, value) {
   try {
@@ -44,6 +65,7 @@ async function doRefund(paymentId, vendorId) {
     console.log('Refunding:', paymentId);
     const refund = await razorpay.payments.refund(paymentId, {});
     console.log('Refund success:', refund.id);
+    recordTransaction(vendorId, paymentId, lastPayments[paymentId] ? lastPayments[paymentId].amount / 100 : 0, 'Refunded');
     const vendor = vendors[vendorId];
     if (vendor) {
       await triggerBlynk(vendor.blynk_token, 'V8', 'Refunded!');
@@ -92,7 +114,7 @@ p{color:#888;font-size:14px;margin-bottom:20px}
 <div class="card">
 <div class="icon">💧</div>
 <h2>Water Vending</h2>
-<p>Amount enter చేయండి లేదా select చేయండి</p>
+<p>Amount select చేయండి</p>
 <div class="amounts">
   <button class="amt-btn" onclick="selectAmt(this,100)">Rs.1</button>
   <button class="amt-btn" onclick="selectAmt(this,200)">Rs.2</button>
@@ -101,7 +123,7 @@ p{color:#888;font-size:14px;margin-bottom:20px}
 </div>
 <input class="custom-input" type="number" id="amt" placeholder="Amount in Rupees" oninput="clearSelected()">
 <button class="pay-btn" onclick="pay()">Pay Now</button>
-<p class="hint">Valid amounts: Rs.1, Rs.2, Rs.3, Rs.4 only</p>
+<p class="hint">Valid: Rs.1, Rs.2, Rs.3, Rs.4 only</p>
 </div>
 <script>
 var selectedAmt = 0;
@@ -148,7 +170,7 @@ const adminHTML = `<!DOCTYPE html>
 <style>
 body{font-family:Arial;padding:20px;background:#f0f0f0}
 .card{background:white;padding:20px;border-radius:10px;margin-bottom:20px;box-shadow:0 2px 5px rgba(0,0,0,0.1)}
-input{width:100%;padding:10px;margin:5px 0 15px 0;border:1px solid #ddd;border-radius:5px;box-sizing:border-box}
+input,select{width:100%;padding:10px;margin:5px 0 15px 0;border:1px solid #ddd;border-radius:5px;box-sizing:border-box}
 .btn{color:white;padding:12px 20px;border:none;border-radius:5px;width:100%;font-size:16px;cursor:pointer;margin-bottom:10px;background:#2196F3}
 .btn-red{background:#f44336}
 .btn-green{background:#4CAF50}
@@ -156,6 +178,13 @@ h2{color:#333}
 .vc{background:#e3f2fd;padding:15px;border-radius:8px;margin-bottom:10px}
 .vc h3{margin:0 0 10px 0;color:#1565c0}
 .qb{background:#f5f5f5;padding:10px;border-radius:5px;margin-top:10px;word-break:break-all;font-size:14px}
+table{width:100%;border-collapse:collapse;margin-top:10px}
+th{background:#1565c0;color:white;padding:8px;font-size:13px}
+td{padding:8px;border-bottom:1px solid #eee;font-size:13px}
+tr:nth-child(even){background:#f5f5f5}
+.status-success{color:#4CAF50;font-weight:bold}
+.status-refunded{color:#f44336;font-weight:bold}
+.total-row{background:#e3f2fd;font-weight:bold}
 </style>
 </head>
 <body>
@@ -165,6 +194,7 @@ h2{color:#333}
 <button class="btn" id="loginBtn">Login</button>
 </div>
 <div id="panel" style="display:none">
+
 <div class="card">
 <h2>Add New Vendor</h2>
 <input type="text" id="vendorId" placeholder="Vendor ID (ex: vendor_001)">
@@ -176,11 +206,21 @@ h2{color:#333}
 <input type="number" id="commission" placeholder="Commission %" value="10">
 <button class="btn btn-green" id="addBtn">Add Vendor</button>
 </div>
+
 <div class="card">
 <h2>Vendors List</h2>
 <div id="vendorsList">Loading...</div>
-<button class="btn" id="refreshBtn">Refresh List</button>
+<button class="btn" id="refreshBtn">Refresh</button>
 </div>
+
+<div class="card">
+<h2>Transactions Report</h2>
+<select id="vendorSelect"><option value="">Select Vendor</option></select>
+<input type="date" id="reportDate">
+<button class="btn" id="reportBtn">View Report</button>
+<div id="reportDiv"></div>
+</div>
+
 </div>
 <script>
 var pwd = '';
@@ -192,10 +232,13 @@ document.getElementById('loginBtn').addEventListener('click', function() {
     if (data.error) { alert('Wrong password!'); return; }
     document.getElementById('loginCard').style.display = 'none';
     document.getElementById('panel').style.display = 'block';
+    document.getElementById('reportDate').value = new Date().toISOString().split('T')[0];
     showVendors(data);
+    populateVendorSelect(data);
   })
   .catch(function(e) { alert('Error: ' + e.message); });
 });
+
 document.getElementById('addBtn').addEventListener('click', function() {
   var data = {
     vendorId: document.getElementById('vendorId').value,
@@ -217,12 +260,37 @@ document.getElementById('addBtn').addEventListener('click', function() {
     else alert('Error: ' + res.error);
   });
 });
+
 document.getElementById('refreshBtn').addEventListener('click', function() { loadVendors(); });
+
+document.getElementById('reportBtn').addEventListener('click', function() {
+  var vendorId = document.getElementById('vendorSelect').value;
+  var date = document.getElementById('reportDate').value;
+  if (!vendorId) { alert('Vendor select చేయండి!'); return; }
+  fetch('/admin/transactions?vendorId=' + vendorId + '&date=' + date, {
+    headers: { 'x-admin-password': pwd }
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) { showReport(data, vendorId, date); });
+});
+
 function loadVendors() {
   fetch('/admin/vendors', { headers: { 'x-admin-password': pwd } })
   .then(function(r) { return r.json(); })
-  .then(function(data) { showVendors(data); });
+  .then(function(data) {
+    showVendors(data);
+    populateVendorSelect(data);
+  });
 }
+
+function populateVendorSelect(data) {
+  var sel = document.getElementById('vendorSelect');
+  sel.innerHTML = '<option value="">Select Vendor</option>';
+  Object.entries(data).forEach(function(entry) {
+    sel.innerHTML += '<option value="' + entry[0] + '">' + entry[1].name + '</option>';
+  });
+}
+
 function showVendors(data) {
   var div = document.getElementById('vendorsList');
   var keys = Object.keys(data);
@@ -231,19 +299,16 @@ function showVendors(data) {
   keys.forEach(function(id) {
     var v = data[id];
     var payLink = 'https://water-vending-server.onrender.com/pay/' + id;
-    var qrLink = 'https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=' + encodeURIComponent(payLink);
+    var qrLink = 'https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=' + encodeURIComponent(payLink);
     html += '<div class="vc">';
     html += '<h3>' + v.name + '</h3>';
-    html += '<p>ID: ' + id + '</p>';
-    html += '<p>Commission: ' + v.commission + '%</p>';
+    html += '<p>ID: ' + id + ' | Commission: ' + v.commission + '%</p>';
     html += '<p>Bank: ' + v.bank_account + '</p>';
     html += '<div class="qb">';
-    html += '<p>Payment Link: <a href="' + payLink + '" target="_blank">' + payLink + '</a></p>';
-    html += '<p>QR Code:</p>';
     html += '<img src="' + qrLink + '" style="max-width:200px;margin:10px 0"><br>';
-    html += '<a href="' + qrLink + '" download="qr_' + id + '.png">Download QR</a>';
+    html += '<a href="' + qrLink + '" download="qr_' + id + '.png">⬇️ Download QR</a>';
     html += '</div>';
-    html += '<button class="btn btn-red" data-id="' + id + '" data-action="del">Delete Vendor</button>';
+    html += '<button class="btn btn-red" data-id="' + id + '" data-action="del">Delete</button>';
     html += '</div>';
   });
   div.innerHTML = html;
@@ -251,6 +316,37 @@ function showVendors(data) {
     btn.addEventListener('click', function() { deleteVendor(this.getAttribute('data-id')); });
   });
 }
+
+function showReport(data, vendorId, date) {
+  var div = document.getElementById('reportDiv');
+  if (!data || data.length === 0) {
+    div.innerHTML = '<p style="margin-top:10px;color:#888">No transactions found!</p>';
+    return;
+  }
+  var totalAmount = 0;
+  var totalCommission = 0;
+  var totalVendor = 0;
+  var rows = '';
+  data.forEach(function(t) {
+    totalAmount += t.amount;
+    totalCommission += t.commission;
+    totalVendor += t.vendorAmount;
+    rows += '<tr>';
+    rows += '<td>' + t.time + '</td>';
+    rows += '<td>' + t.paymentId + '</td>';
+    rows += '<td>Rs.' + t.amount + '</td>';
+    rows += '<td>Rs.' + t.commission + '</td>';
+    rows += '<td>Rs.' + t.vendorAmount + '</td>';
+    rows += '<td class="status-' + t.status.toLowerCase() + '">' + t.status + '</td>';
+    rows += '</tr>';
+  });
+  div.innerHTML = '<h3 style="margin:15px 0 10px">Report: ' + vendorId + ' - ' + date + '</h3>' +
+    '<table><thead><tr><th>Time</th><th>Payment ID</th><th>Amount</th><th>Commission</th><th>Vendor Amount</th><th>Status</th></tr></thead>' +
+    '<tbody>' + rows +
+    '<tr class="total-row"><td colspan="2">TOTAL</td><td>Rs.' + totalAmount + '</td><td>Rs.' + totalCommission + '</td><td>Rs.' + totalVendor + '</td><td></td></tr>' +
+    '</tbody></table>';
+}
+
 function deleteVendor(id) {
   if (!confirm('Delete vendor ' + id + '?')) return;
   fetch('/admin/vendors/delete', {
@@ -276,6 +372,18 @@ app.get('/admin/vendors', function(req, res) {
   res.json(vendors);
 });
 
+app.get('/admin/transactions', function(req, res) {
+  if (req.headers['x-admin-password'] !== ADMIN_PASSWORD) {
+    return res.json({ error: 'Unauthorized' });
+  }
+  var vendorId = req.query.vendorId;
+  var date = req.query.date;
+  if (!transactions[vendorId] || !transactions[vendorId][date]) {
+    return res.json([]);
+  }
+  res.json(transactions[vendorId][date]);
+});
+
 app.post('/admin/vendors/add', function(req, res) {
   if (req.headers['x-admin-password'] !== ADMIN_PASSWORD) {
     return res.json({ success: false, error: 'Unauthorized' });
@@ -290,7 +398,7 @@ app.post('/admin/vendors/add', function(req, res) {
     bank_account: b.bank_account,
     bank_ifsc: b.bank_ifsc,
     bank_name: b.bank_name,
-    commission: b.commission
+    commission: parseInt(b.commission) || 10
   };
   console.log('Vendor added:', b.vendorId);
   res.json({ success: true });
@@ -354,10 +462,12 @@ app.post('/success', async function(req, res) {
     console.log('Relay ON success:', vendorId);
     Object.keys(refundTimers).forEach(function(paymentId) {
       if (lastPayments[paymentId] && lastPayments[paymentId].vendorId === vendorId) {
+        var amt = lastPayments[paymentId].amount / 100;
+        recordTransaction(vendorId, paymentId, amt, 'Success');
         clearTimeout(refundTimers[paymentId]);
         delete refundTimers[paymentId];
         delete lastPayments[paymentId];
-        console.log('Refund timer cancelled');
+        console.log('Refund timer cancelled - Transaction recorded');
       }
     });
     var vendor = vendors[vendorId];
