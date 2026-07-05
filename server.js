@@ -120,10 +120,10 @@ p{color:#888;font-size:14px;margin-bottom:20px}
 <h2>Water Vending</h2>
 <p>Amount select చేయండి</p>
 <div class="amounts">
-  <button class="amt-btn" onclick="selectAmt(this,100)">1L.2RS</button>
-  <button class="amt-btn" onclick="selectAmt(this,200)">Rs.2</button>
-  <button class="amt-btn" onclick="selectAmt(this,300)">Rs.3</button>
-  <button class="amt-btn" onclick="selectAmt(this,400)">Rs.4</button>
+  <button class="amt-btn" onclick="selectAmt(this,100)">1L-1RS</button>
+  <button class="amt-btn" onclick="selectAmt(this,200)">2L-2RS</button>
+  <button class="amt-btn" onclick="selectAmt(this,300)">3L-3RS</button>
+  <button class="amt-btn" onclick="selectAmt(this,400)">4L-4RS</button>
 </div>
 <input class="custom-input" type="number" id="amt" placeholder="Amount in Rupees" oninput="clearSelected()">
 <button class="pay-btn" onclick="pay()">Pay Now</button>
