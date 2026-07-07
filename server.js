@@ -2,6 +2,7 @@ const express = require('express');
 const Razorpay = require('razorpay');
 const crypto = require('crypto');
 const axios = require('axios');
+const { Pool } = require('pg');
 
 const app = express();
 app.use(express.json());
@@ -25,32 +26,110 @@ const AMOUNT_PIN_MAP = {
   400: 'V4'
 };
 
-let vendors = {};
-let lastPayments = {};
+// ---------- DATABASE SETUP ----------
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false } // required for Supabase / most hosted Postgres
+});
+
+async function initDb() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS vendors (
+      vendor_id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      blynk_token TEXT NOT NULL,
+      bank_account TEXT,
+      bank_ifsc TEXT,
+      bank_name TEXT,
+      commission INTEGER DEFAULT 10,
+      created_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS transactions (
+      id SERIAL PRIMARY KEY,
+      vendor_id TEXT NOT NULL,
+      payment_id TEXT NOT NULL,
+      amount INTEGER NOT NULL,
+      commission INTEGER NOT NULL,
+      vendor_amount INTEGER NOT NULL,
+      status TEXT NOT NULL,
+      tx_date DATE NOT NULL,
+      tx_time TEXT NOT NULL,
+      created_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS pending_payments (
+      payment_id TEXT PRIMARY KEY,
+      vendor_id TEXT,
+      amount INTEGER,
+      vpin TEXT,
+      created_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+  console.log('Database tables ready');
+}
+
 let refundTimers = {};
-let transactions = {};
 
 function getToday() {
   return new Date().toISOString().split('T')[0];
 }
 
-function recordTransaction(vendorId, paymentId, amountRupees, status) {
-  var date = getToday();
-  if (!transactions[vendorId]) transactions[vendorId] = {};
-  if (!transactions[vendorId][date]) transactions[vendorId][date] = [];
-  var vendor = vendors[vendorId];
-  var commissionPct = vendor ? parseInt(vendor.commission) : 10;
+async function getVendor(vendorId) {
+  const result = await pool.query('SELECT * FROM vendors WHERE vendor_id = $1', [vendorId]);
+  return result.rows[0] || null;
+}
+
+async function getAllVendors() {
+  const result = await pool.query('SELECT * FROM vendors ORDER BY created_at');
+  var out = {};
+  result.rows.forEach(function(v) {
+    out[v.vendor_id] = {
+      name: v.name,
+      blynk_token: v.blynk_token,
+      bank_account: v.bank_account,
+      bank_ifsc: v.bank_ifsc,
+      bank_name: v.bank_name,
+      commission: v.commission
+    };
+  });
+  return out;
+}
+
+async function recordTransaction(vendorId, paymentId, amountRupees, status) {
+  var vendor = await getVendor(vendorId);
+  var commissionPct = vendor ? vendor.commission : 10;
   var commission = Math.round(amountRupees * commissionPct / 100);
   var vendorAmount = amountRupees - commission;
-  transactions[vendorId][date].push({
-    paymentId: paymentId,
-    amount: amountRupees,
-    commission: commission,
-    vendorAmount: vendorAmount,
-    status: status,
-    time: new Date().toLocaleTimeString('en-IN')
-  });
+  var date = getToday();
+  var time = new Date().toLocaleTimeString('en-IN');
+
+  await pool.query(
+    `INSERT INTO transactions (vendor_id, payment_id, amount, commission, vendor_amount, status, tx_date, tx_time)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+    [vendorId, paymentId, amountRupees, commission, vendorAmount, status, date, time]
+  );
   console.log('Transaction recorded:', vendorId, amountRupees, 'Commission:', commission);
+}
+
+async function savePendingPayment(paymentId, vendorId, amount, vpin) {
+  await pool.query(
+    `INSERT INTO pending_payments (payment_id, vendor_id, amount, vpin)
+     VALUES ($1,$2,$3,$4)
+     ON CONFLICT (payment_id) DO UPDATE SET vendor_id=$2, amount=$3, vpin=$4`,
+    [paymentId, vendorId, amount, vpin]
+  );
+}
+
+async function getPendingPayment(paymentId) {
+  const result = await pool.query('SELECT * FROM pending_payments WHERE payment_id = $1', [paymentId]);
+  return result.rows[0] || null;
+}
+
+async function deletePendingPayment(paymentId) {
+  await pool.query('DELETE FROM pending_payments WHERE payment_id = $1', [paymentId]);
 }
 
 async function triggerBlynk(token, pin, value) {
@@ -66,27 +145,30 @@ async function triggerBlynk(token, pin, value) {
 async function doRefund(paymentId, vendorId) {
   try {
     console.log('Refunding:', paymentId);
-    var amountRupees = lastPayments[paymentId] ? lastPayments[paymentId].amount / 100 : 0;
+    var pending = await getPendingPayment(paymentId);
+    var amountRupees = pending ? pending.amount / 100 : 0;
     const refund = await razorpay.payments.refund(paymentId, {});
     console.log('Refund success:', refund.id);
-    recordTransaction(vendorId, paymentId, amountRupees, 'Refunded');
-    const vendor = vendors[vendorId];
-    if (vendor) {
-      await triggerBlynk(vendor.blynk_token, 'V8', 'Refunded!');
+    if (vendorId) {
+      await recordTransaction(vendorId, paymentId, amountRupees, 'Refunded');
+      const vendor = await getVendor(vendorId);
+      if (vendor) {
+        await triggerBlynk(vendor.blynk_token, 'V8', 'Refunded!');
+      }
     }
   } catch (err) {
     console.log('Refund error:', err.message);
   }
-  delete lastPayments[paymentId];
+  await deletePendingPayment(paymentId);
   if (refundTimers[paymentId]) {
     clearTimeout(refundTimers[paymentId]);
     delete refundTimers[paymentId];
   }
 }
 
-app.get('/pay/:vendorId', function(req, res) {
+app.get('/pay/:vendorId', async function(req, res) {
   var vendorId = req.params.vendorId;
-  var vendor = vendors[vendorId];
+  var vendor = await getVendor(vendorId);
   if (!vendor) {
     return res.send('<h2>Vendor not found!</h2>');
   }
@@ -369,26 +451,39 @@ function deleteVendor(id) {
 
 app.get('/admin', function(req, res) { res.send(adminHTML); });
 
-app.get('/admin/vendors', function(req, res) {
+app.get('/admin/vendors', async function(req, res) {
   if (req.headers['x-admin-password'] !== ADMIN_PASSWORD) {
     return res.json({ error: 'Unauthorized' });
   }
-  res.json(vendors);
+  try {
+    var data = await getAllVendors();
+    res.json(data);
+  } catch (err) {
+    console.log('DB error (vendors):', err.message);
+    res.json({ error: 'Database error' });
+  }
 });
 
-app.get('/admin/transactions', function(req, res) {
+app.get('/admin/transactions', async function(req, res) {
   if (req.headers['x-admin-password'] !== ADMIN_PASSWORD) {
     return res.json({ error: 'Unauthorized' });
   }
   var vendorId = req.query.vendorId;
   var date = req.query.date;
-  if (!transactions[vendorId] || !transactions[vendorId][date]) {
-    return res.json([]);
+  try {
+    const result = await pool.query(
+      `SELECT payment_id AS "paymentId", amount, commission, vendor_amount AS "vendorAmount", status, tx_time AS "time"
+       FROM transactions WHERE vendor_id = $1 AND tx_date = $2 ORDER BY id`,
+      [vendorId, date]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.log('DB error (transactions):', err.message);
+    res.json([]);
   }
-  res.json(transactions[vendorId][date]);
 });
 
-app.post('/admin/vendors/add', function(req, res) {
+app.post('/admin/vendors/add', async function(req, res) {
   if (req.headers['x-admin-password'] !== ADMIN_PASSWORD) {
     return res.json({ success: false, error: 'Unauthorized' });
   }
@@ -396,24 +491,32 @@ app.post('/admin/vendors/add', function(req, res) {
   if (!b.vendorId || !b.name || !b.blynk_token) {
     return res.json({ success: false, error: 'Missing fields' });
   }
-  vendors[b.vendorId] = {
-    name: b.name,
-    blynk_token: b.blynk_token,
-    bank_account: b.bank_account,
-    bank_ifsc: b.bank_ifsc,
-    bank_name: b.bank_name,
-    commission: parseInt(b.commission) || 10
-  };
-  console.log('Vendor added:', b.vendorId);
-  res.json({ success: true });
+  try {
+    await pool.query(
+      `INSERT INTO vendors (vendor_id, name, blynk_token, bank_account, bank_ifsc, bank_name, commission)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)
+       ON CONFLICT (vendor_id) DO UPDATE SET
+         name=$2, blynk_token=$3, bank_account=$4, bank_ifsc=$5, bank_name=$6, commission=$7`,
+      [b.vendorId, b.name, b.blynk_token, b.bank_account, b.bank_ifsc, b.bank_name, parseInt(b.commission) || 10]
+    );
+    console.log('Vendor added:', b.vendorId);
+    res.json({ success: true });
+  } catch (err) {
+    console.log('DB error (add vendor):', err.message);
+    res.json({ success: false, error: err.message });
+  }
 });
 
-app.post('/admin/vendors/delete', function(req, res) {
+app.post('/admin/vendors/delete', async function(req, res) {
   if (req.headers['x-admin-password'] !== ADMIN_PASSWORD) {
     return res.json({ success: false, error: 'Unauthorized' });
   }
-  delete vendors[req.body.vendorId];
-  res.json({ success: true });
+  try {
+    await pool.query('DELETE FROM vendors WHERE vendor_id = $1', [req.body.vendorId]);
+    res.json({ success: true });
+  } catch (err) {
+    res.json({ success: false, error: err.message });
+  }
 });
 
 app.post('/webhook', async function(req, res) {
@@ -436,23 +539,24 @@ app.post('/webhook', async function(req, res) {
       var vpin = AMOUNT_PIN_MAP[amount];
       if (!vpin) {
         console.log('Wrong amount! Refunding:', amount);
-        lastPayments[paymentId] = { vendorId: vendorId, amount: amount };
+        await savePendingPayment(paymentId, vendorId, amount, null);
         setTimeout(async function() { await doRefund(paymentId, vendorId); }, 2000);
         return res.json({ status: 'ok' });
       }
-      var vendor = vendors[vendorId];
+      var vendor = await getVendor(vendorId);
       if (!vendor) {
         console.log('Vendor not found! Refunding:', vendorId);
-        lastPayments[paymentId] = { vendorId: vendorId, amount: amount };
+        await savePendingPayment(paymentId, vendorId, amount, null);
         setTimeout(async function() { await doRefund(paymentId, vendorId); }, 2000);
         return res.json({ status: 'ok' });
       }
-      lastPayments[paymentId] = { vendorId: vendorId, amount: amount, vpin: vpin };
+      await savePendingPayment(paymentId, vendorId, amount, vpin);
       await triggerBlynk(vendor.blynk_token, vpin, '1');
       await triggerBlynk(vendor.blynk_token, 'V8', 'Payment OK!');
       console.log('Triggered:', vpin, 'for vendor:', vendorId);
       refundTimers[paymentId] = setTimeout(async function() {
-        if (lastPayments[paymentId]) { await doRefund(paymentId, vendorId); }
+        var stillPending = await getPendingPayment(paymentId);
+        if (stillPending) { await doRefund(paymentId, vendorId); }
       }, timeoutSeconds * 1000);
     }
     res.json({ status: 'ok' });
@@ -466,17 +570,21 @@ app.post('/success', async function(req, res) {
   try {
     var vendorId = req.body.vendorId;
     console.log('Relay ON success:', vendorId);
-    Object.keys(refundTimers).forEach(function(paymentId) {
-      if (lastPayments[paymentId] && lastPayments[paymentId].vendorId === vendorId) {
-        var amountRupees = lastPayments[paymentId].amount / 100;
-        recordTransaction(vendorId, paymentId, amountRupees, 'Success');
+    const result = await pool.query(
+      'SELECT * FROM pending_payments WHERE vendor_id = $1', [vendorId]
+    );
+    for (const pending of result.rows) {
+      var paymentId = pending.payment_id;
+      var amountRupees = pending.amount / 100;
+      await recordTransaction(vendorId, paymentId, amountRupees, 'Success');
+      if (refundTimers[paymentId]) {
         clearTimeout(refundTimers[paymentId]);
         delete refundTimers[paymentId];
-        delete lastPayments[paymentId];
-        console.log('Transaction recorded - amount:', amountRupees);
       }
-    });
-    var vendor = vendors[vendorId];
+      await deletePendingPayment(paymentId);
+      console.log('Transaction recorded - amount:', amountRupees);
+    }
+    var vendor = await getVendor(vendorId);
     if (vendor) {
       await triggerBlynk(vendor.blynk_token, 'V8', 'Water dispensing...');
     }
@@ -489,4 +597,12 @@ app.post('/success', async function(req, res) {
 app.get('/', function(req, res) { res.send('Water Vending Server Running!'); });
 
 var PORT = process.env.PORT || 3000;
-app.listen(PORT, function() { console.log('Server running on port ' + PORT); });
+
+initDb()
+  .then(function() {
+    app.listen(PORT, function() { console.log('Server running on port ' + PORT); });
+  })
+  .catch(function(err) {
+    console.log('DB init failed:', err.message);
+    app.listen(PORT, function() { console.log('Server running (DB failed) on port ' + PORT); });
+  });
