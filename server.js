@@ -10,7 +10,7 @@ app.use(express.urlencoded({ extended: true }));
 
 const RAZORPAY_KEY_ID = process.env.RAZORPAY_KEY_ID;
 const RAZORPAY_KEY_SECRET = process.env.RAZORPAY_KEY_SECRET;
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123';
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '12345';
 
 const razorpay = new Razorpay({
   key_id: RAZORPAY_KEY_ID,
