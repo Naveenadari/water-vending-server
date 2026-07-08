@@ -173,10 +173,10 @@ p{color:#888;font-size:14px;margin-bottom:20px}
 <h2>Sol Water Vending</h2>
 <p>Amount select చేయండి</p>
 <div class="amounts">
-  <button class="amt-btn" onclick="selectAmt(this,100)">Rs.20</button>
-  <button class="amt-btn" onclick="selectAmt(this,200)">Rs.30</button>
-  <button class="amt-btn" onclick="selectAmt(this,300)">Rs.40</button>
-  <button class="amt-btn" onclick="selectAmt(this,400)">Rs.50</button>
+  <button class="amt-btn" onclick="selectAmt(this,100)">Rs.1</button>
+  <button class="amt-btn" onclick="selectAmt(this,200)">Rs.2</button>
+  <button class="amt-btn" onclick="selectAmt(this,300)">Rs.3</button>
+  <button class="amt-btn" onclick="selectAmt(this,400)">Rs.4</button>
 </div>
 <input class="custom-input" type="number" id="amt" placeholder="Amount in Rupees" oninput="clearSelected()">
 <button class="pay-btn" onclick="pay()">Pay Now</button>
