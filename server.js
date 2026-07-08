@@ -21,17 +21,17 @@ const razorpay = new Razorpay({
 const BLYNK_BASE_URL = 'https://blynk.cloud/external/api';
 
 const AMOUNT_PIN_MAP = {
-  1000: 'V1',
-  2000: 'V2',
-  3000: 'V3',
-  4000: 'V4'
+  2000: 'V1',
+  3000: 'V2',
+  4000: 'V3',
+  5000: 'V4'
 };
 
 let vendors = {};
 let lastPayments = {};
 let refundTimers = {};
+let paymentStatus = {};
 
-// PostgreSQL connect
 const pool = new Pool({
   connectionString: DATABASE_URL,
   ssl: { rejectUnauthorized: false }
@@ -91,11 +91,8 @@ function getToday() {
 async function recordTransaction(vendorId, paymentId, amountRupees, status) {
   var vendor = vendors[vendorId];
   var commissionPct = vendor ? parseInt(vendor.commission) : 10;
-  
-  // Refund అయితే commission 0!
   var commission = status === 'Refunded' ? 0 : Math.round(amountRupees * commissionPct / 100);
   var vendorAmount = status === 'Refunded' ? 0 : amountRupees - commission;
-  
   try {
     await pool.query(
       'INSERT INTO transactions (vendor_id, payment_id, amount, commission, vendor_amount, status, date, time) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)',
@@ -106,6 +103,7 @@ async function recordTransaction(vendorId, paymentId, amountRupees, status) {
     console.log('Transaction error:', err.message);
   }
 }
+
 async function triggerBlynk(token, pin, value) {
   try {
     const url = BLYNK_BASE_URL + '/update?token=' + token + '&' + pin + '=' + value;
@@ -122,6 +120,7 @@ async function doRefund(paymentId, vendorId) {
     var amountRupees = lastPayments[paymentId] ? lastPayments[paymentId].amount / 100 : 0;
     const refund = await razorpay.payments.refund(paymentId, {});
     console.log('Refund success:', refund.id);
+    paymentStatus[paymentId] = 'refunded';
     await recordTransaction(vendorId, paymentId, amountRupees, 'Refunded');
     const vendor = vendors[vendorId];
     if (vendor) {
@@ -129,6 +128,7 @@ async function doRefund(paymentId, vendorId) {
     }
   } catch (err) {
     console.log('Refund error:', err.message);
+    paymentStatus[paymentId] = 'refunded';
   }
   delete lastPayments[paymentId];
   if (refundTimers[paymentId]) {
@@ -170,17 +170,17 @@ p{color:#888;font-size:14px;margin-bottom:20px}
 <body>
 <div class="card">
 <div class="icon">💧</div>
-<h2>SOL Water Vending</h2>
+<h2>Water Vending</h2>
 <p>Amount select చేయండి</p>
 <div class="amounts">
-  <button class="amt-btn" onclick="selectAmt(this,1000)">Rs.10</button>
   <button class="amt-btn" onclick="selectAmt(this,2000)">Rs.20</button>
   <button class="amt-btn" onclick="selectAmt(this,3000)">Rs.30</button>
   <button class="amt-btn" onclick="selectAmt(this,4000)">Rs.40</button>
+  <button class="amt-btn" onclick="selectAmt(this,5000)">Rs.50</button>
 </div>
 <input class="custom-input" type="number" id="amt" placeholder="Amount in Rupees" oninput="clearSelected()">
 <button class="pay-btn" onclick="pay()">Pay Now</button>
-<p class="hint">Valid: Rs.10, Rs.20, Rs.30, Rs.40 only</p>
+<p class="hint">Valid: Rs.20, Rs.30, Rs.40, Rs.50 only</p>
 </div>
 <script>
 var selectedAmt = 0;
@@ -206,28 +206,34 @@ function pay() {
     description: 'Water Payment',
     notes: { vendor_id: '${vendorId}' },
     handler: function(response) {
-  var countdown = 60;
-  document.body.innerHTML = '<div style="text-align:center;padding:30px;font-family:Arial" id="statusDiv"><div style="font-size:60px">⏳</div><h2 style="color:#1565c0;margin:20px 0">Payment Successful!</h2><p style="color:#888">Waiting for water...</p><div style="font-size:48px;color:#1565c0;font-weight:bold;margin:20px 0" id="timer">60</div><p style="color:#aaa;font-size:14px">Please wait...</p></div>';
-  var interval = setInterval(function() {
-    countdown--;
-    var timerEl = document.getElementById("timer");
-    if (timerEl) timerEl.innerText = countdown;
-    if (countdown <= 0) {
-      clearInterval(interval);
-      document.body.innerHTML = '<div style="text-align:center;padding:30px;font-family:Arial"><div style="font-size:60px">❌</div><h2 style="color:#f44336;margin:20px 0">Water Not Dispensed!</h2><p style="color:#555">Your payment has been refunded.</p><p style="color:#888;font-size:14px;margin-top:10px">Amount will credit to your account in 1-2 working days.</p></div>';
-    }
-  }, 1000);
-  fetch('/status/' + '${vendorId}', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ paymentId: response.razorpay_payment_id })
-  }).then(function(r) { return r.json(); }).then(function(data) {
-    if (data.success) {
-      clearInterval(interval);
-      document.body.innerHTML = '<div style="text-align:center;padding:30px;font-family:Arial"><div style="font-size:60px">✅</div><h2 style="color:#4CAF50;margin:20px 0">Water Dispensing!</h2><p style="color:#888">Thank you for your payment.</p></div>';
-    }
-  });
-},
+      var countdown = 60;
+      var paymentId = response.razorpay_payment_id;
+      document.body.innerHTML = '<div style="text-align:center;padding:30px;font-family:Arial" id="statusDiv"><div style="font-size:60px">⏳</div><h2 style="color:#1565c0;margin:20px 0">Payment Successful!</h2><p style="color:#888">Waiting for water...</p><div style="font-size:48px;color:#1565c0;font-weight:bold;margin:20px 0" id="timer">60</div><p style="color:#aaa;font-size:14px">Please wait...</p></div>';
+      var interval = setInterval(function() {
+        countdown--;
+        var timerEl = document.getElementById("timer");
+        if (timerEl) timerEl.innerText = countdown;
+        if (countdown <= 0) {
+          clearInterval(interval);
+          document.body.innerHTML = '<div style="text-align:center;padding:30px;font-family:Arial"><div style="font-size:60px">❌</div><h2 style="color:#f44336;margin:20px 0">Water Not Dispensed!</h2><p style="color:#555">Your payment has been refunded.</p><p style="color:#888;font-size:14px;margin-top:10px">Amount will credit to your account in 1-2 working days.</p></div>';
+        }
+      }, 1000);
+      fetch('/status/${vendorId}', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ paymentId: paymentId })
+      }).then(function(r) { return r.json(); }).then(function(data) {
+        if (data.success) {
+          clearInterval(interval);
+          document.body.innerHTML = '<div style="text-align:center;padding:30px;font-family:Arial"><div style="font-size:60px">✅</div><h2 style="color:#4CAF50;margin:20px 0">Water Dispensing!</h2><p style="color:#888">Thank you for your payment.</p></div>';
+        } else {
+          clearInterval(interval);
+          document.body.innerHTML = '<div style="text-align:center;padding:30px;font-family:Arial"><div style="font-size:60px">❌</div><h2 style="color:#f44336;margin:20px 0">Water Not Dispensed!</h2><p style="color:#555">Your payment has been refunded.</p><p style="color:#888;font-size:14px;margin-top:10px">Amount will credit to your account in 1-2 working days.</p></div>';
+        }
+      }).catch(function() {
+        clearInterval(interval);
+      });
+    },
     prefill: { contact: '', email: '' },
     theme: { color: '#1565c0' }
   };
@@ -237,6 +243,29 @@ function pay() {
 </script>
 </body>
 </html>`);
+});
+
+app.post('/status/:vendorId', function(req, res) {
+  var vendorId = req.params.vendorId;
+  var paymentId = req.body.paymentId;
+  var startTime = Date.now();
+
+  var checkInterval = setInterval(function() {
+    if (paymentStatus[paymentId] === 'success') {
+      clearInterval(checkInterval);
+      delete paymentStatus[paymentId];
+      return res.json({ success: true });
+    }
+    if (paymentStatus[paymentId] === 'refunded') {
+      clearInterval(checkInterval);
+      delete paymentStatus[paymentId];
+      return res.json({ success: false, message: 'Refunded' });
+    }
+    if (Date.now() - startTime > 65000) {
+      clearInterval(checkInterval);
+      return res.json({ success: false, message: 'Timeout' });
+    }
+  }, 1000);
 });
 
 const adminHTML = `<!DOCTYPE html>
@@ -536,6 +565,7 @@ app.post('/success', async function(req, res) {
     for (var paymentId of Object.keys(refundTimers)) {
       if (lastPayments[paymentId] && lastPayments[paymentId].vendorId === vendorId) {
         var amountRupees = lastPayments[paymentId].amount / 100;
+        paymentStatus[paymentId] = 'success';
         await recordTransaction(vendorId, paymentId, amountRupees, 'Success');
         clearTimeout(refundTimers[paymentId]);
         delete refundTimers[paymentId];
