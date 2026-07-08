@@ -91,19 +91,21 @@ function getToday() {
 async function recordTransaction(vendorId, paymentId, amountRupees, status) {
   var vendor = vendors[vendorId];
   var commissionPct = vendor ? parseInt(vendor.commission) : 10;
-  var commission = Math.round(amountRupees * commissionPct / 100);
-  var vendorAmount = amountRupees - commission;
+  
+  // Refund అయితే commission 0!
+  var commission = status === 'Refunded' ? 0 : Math.round(amountRupees * commissionPct / 100);
+  var vendorAmount = status === 'Refunded' ? 0 : amountRupees - commission;
+  
   try {
     await pool.query(
       'INSERT INTO transactions (vendor_id, payment_id, amount, commission, vendor_amount, status, date, time) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)',
       [vendorId, paymentId, amountRupees, commission, vendorAmount, status, getToday(), new Date().toLocaleTimeString('en-IN')]
     );
-    console.log('Transaction recorded:', vendorId, amountRupees, 'Commission:', commission);
+    console.log('Transaction recorded:', vendorId, amountRupees, 'Commission:', commission, 'Status:', status);
   } catch (err) {
     console.log('Transaction error:', err.message);
   }
 }
-
 async function triggerBlynk(token, pin, value) {
   try {
     const url = BLYNK_BASE_URL + '/update?token=' + token + '&' + pin + '=' + value;
