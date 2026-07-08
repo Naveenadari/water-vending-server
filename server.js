@@ -96,7 +96,9 @@ async function recordTransaction(vendorId, paymentId, amountRupees, status) {
   try {
     await pool.query(
       'INSERT INTO transactions (vendor_id, payment_id, amount, commission, vendor_amount, status, date, time) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)',
-      [vendorId, paymentId, amountRupees, commission, vendorAmount, status, getToday(), new Date().toLocaleTimeString('en-IN')]
+      [vendorId, paymentId, amountRupees, commission, vendorAmount, status, getToday(), function getToday() {
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+}]
     );
     console.log('Transaction recorded:', vendorId, amountRupees, 'Commission:', commission, 'Status:', status);
   } catch (err) {
