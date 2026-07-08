@@ -21,10 +21,10 @@ const razorpay = new Razorpay({
 const BLYNK_BASE_URL = 'https://blynk.cloud/external/api';
 
 const AMOUNT_PIN_MAP = {
-  2000: 'V1',
-  3000: 'V2',
-  4000: 'V3',
-  5000: 'V4'
+  100: 'V1',
+  200: 'V2',
+  300: 'V3',
+  400: 'V4'
 };
 
 let vendors = {};
@@ -172,17 +172,17 @@ p{color:#888;font-size:14px;margin-bottom:20px}
 <body>
 <div class="card">
 <div class="icon">💧</div>
-<h2>Water Vending</h2>
+<h2>Sol Water Vending</h2>
 <p>Amount select చేయండి</p>
 <div class="amounts">
-  <button class="amt-btn" onclick="selectAmt(this,2000)">Rs.20</button>
-  <button class="amt-btn" onclick="selectAmt(this,3000)">Rs.30</button>
-  <button class="amt-btn" onclick="selectAmt(this,4000)">Rs.40</button>
-  <button class="amt-btn" onclick="selectAmt(this,5000)">Rs.50</button>
+  <button class="amt-btn" onclick="selectAmt(this,100)">Rs.1</button>
+  <button class="amt-btn" onclick="selectAmt(this,200)">Rs.2</button>
+  <button class="amt-btn" onclick="selectAmt(this,300)">Rs.3</button>
+  <button class="amt-btn" onclick="selectAmt(this,400)">Rs.4</button>
 </div>
 <input class="custom-input" type="number" id="amt" placeholder="Amount in Rupees" oninput="clearSelected()">
 <button class="pay-btn" onclick="pay()">Pay Now</button>
-<p class="hint">Valid: Rs.20, Rs.30, Rs.40, Rs.50 only</p>
+<p class="hint">Valid: Rs.1, Rs.2, Rs.3, Rs.4 only</p>
 </div>
 <script>
 var selectedAmt = 0;
