@@ -21,10 +21,10 @@ const razorpay = new Razorpay({
 const BLYNK_BASE_URL = 'https://blynk.cloud/external/api';
 
 const AMOUNT_PIN_MAP = {
-  100: 'V1',
-  200: 'V2',
-  300: 'V3',
-  400: 'V4'
+  2000: 'V1',
+  3000: 'V2',
+  4000: 'V3',
+  5000: 'V4'
 };
 
 let vendors = {};
@@ -170,17 +170,17 @@ p{color:#888;font-size:14px;margin-bottom:20px}
 <body>
 <div class="card">
 <div class="icon">💧</div>
-<h2>Sol Water Vending</h2>
+<h2>Water Vending</h2>
 <p>Amount select చేయండి</p>
 <div class="amounts">
-  <button class="amt-btn" onclick="selectAmt(this,100)">Rs.1</button>
-  <button class="amt-btn" onclick="selectAmt(this,200)">Rs.2</button>
-  <button class="amt-btn" onclick="selectAmt(this,300)">Rs.3</button>
-  <button class="amt-btn" onclick="selectAmt(this,400)">Rs.4</button>
+  <button class="amt-btn" onclick="selectAmt(this,2000)">Rs.20</button>
+  <button class="amt-btn" onclick="selectAmt(this,3000)">Rs.30</button>
+  <button class="amt-btn" onclick="selectAmt(this,4000)">Rs.40</button>
+  <button class="amt-btn" onclick="selectAmt(this,5000)">Rs.50</button>
 </div>
 <input class="custom-input" type="number" id="amt" placeholder="Amount in Rupees" oninput="clearSelected()">
 <button class="pay-btn" onclick="pay()">Pay Now</button>
-<p class="hint">Valid: Rs.1, Rs.2, Rs.3, Rs.4 only</p>
+<p class="hint">Valid: Rs.20, Rs.30, Rs.40, Rs.50 only</p>
 </div>
 <script>
 var selectedAmt = 0;
@@ -230,9 +230,7 @@ function pay() {
           clearInterval(interval);
           document.body.innerHTML = '<div style="text-align:center;padding:30px;font-family:Arial"><div style="font-size:60px">❌</div><h2 style="color:#f44336;margin:20px 0">Water Not Dispensed!</h2><p style="color:#555">Your payment has been refunded.</p><p style="color:#888;font-size:14px;margin-top:10px">Amount will credit to your account in 1-2 working days.</p></div>';
         }
-      }).catch(function() {
-        clearInterval(interval);
-      });
+      }).catch(function() { clearInterval(interval); });
     },
     prefill: { contact: '', email: '' },
     theme: { color: '#1565c0' }
@@ -246,10 +244,8 @@ function pay() {
 });
 
 app.post('/status/:vendorId', function(req, res) {
-  var vendorId = req.params.vendorId;
   var paymentId = req.body.paymentId;
   var startTime = Date.now();
-
   var checkInterval = setInterval(function() {
     if (paymentStatus[paymentId] === 'success') {
       clearInterval(checkInterval);
@@ -280,6 +276,7 @@ input,select{width:100%;padding:10px;margin:5px 0 15px 0;border:1px solid #ddd;b
 .btn{color:white;padding:12px 20px;border:none;border-radius:5px;width:100%;font-size:16px;cursor:pointer;margin-bottom:10px;background:#2196F3}
 .btn-red{background:#f44336}
 .btn-green{background:#4CAF50}
+.btn-orange{background:#FF9800}
 h2{color:#333}
 .vc{background:#e3f2fd;padding:15px;border-radius:8px;margin-bottom:10px}
 .vc h3{margin:0 0 10px 0;color:#1565c0}
@@ -291,6 +288,13 @@ tr:nth-child(even){background:#f5f5f5}
 .status-success{color:#4CAF50;font-weight:bold}
 .status-refunded{color:#f44336;font-weight:bold}
 .total-row{background:#e3f2fd;font-weight:bold}
+.date-row{display:flex;gap:10px}
+.date-row input{margin:5px 0 15px 0}
+@media print{
+  .no-print{display:none}
+  body{background:white;padding:0}
+  .card{box-shadow:none}
+}
 </style>
 </head>
 <body>
@@ -300,7 +304,7 @@ tr:nth-child(even){background:#f5f5f5}
 <button class="btn" id="loginBtn">Login</button>
 </div>
 <div id="panel" style="display:none">
-<div class="card">
+<div class="card no-print">
 <h2>Add New Vendor</h2>
 <input type="text" id="vendorId" placeholder="Vendor ID (ex: vendor_001)">
 <input type="text" id="vendorName" placeholder="Vendor Name">
@@ -311,16 +315,21 @@ tr:nth-child(even){background:#f5f5f5}
 <input type="number" id="commission" placeholder="Commission %" value="10">
 <button class="btn btn-green" id="addBtn">Add Vendor</button>
 </div>
-<div class="card">
+<div class="card no-print">
 <h2>Vendors List</h2>
 <div id="vendorsList">Loading...</div>
 <button class="btn" id="refreshBtn">Refresh</button>
 </div>
 <div class="card">
 <h2>Transactions Report</h2>
+<div class="no-print">
 <select id="vendorSelect"><option value="">Select Vendor</option></select>
-<input type="date" id="reportDate">
+<div class="date-row">
+  <div style="flex:1"><label style="font-size:13px;color:#666">From Date</label><input type="date" id="fromDate"></div>
+  <div style="flex:1"><label style="font-size:13px;color:#666">To Date</label><input type="date" id="toDate"></div>
+</div>
 <button class="btn" id="reportBtn">View Report</button>
+</div>
 <div id="reportDiv"></div>
 </div>
 </div>
@@ -334,7 +343,9 @@ document.getElementById('loginBtn').addEventListener('click', function() {
     if (data.error) { alert('Wrong password!'); return; }
     document.getElementById('loginCard').style.display = 'none';
     document.getElementById('panel').style.display = 'block';
-    document.getElementById('reportDate').value = new Date().toISOString().split('T')[0];
+    var today = new Date().toISOString().split('T')[0];
+    document.getElementById('fromDate').value = today;
+    document.getElementById('toDate').value = today;
     showVendors(data);
     populateVendorSelect(data);
   })
@@ -364,13 +375,15 @@ document.getElementById('addBtn').addEventListener('click', function() {
 document.getElementById('refreshBtn').addEventListener('click', function() { loadVendors(); });
 document.getElementById('reportBtn').addEventListener('click', function() {
   var vendorId = document.getElementById('vendorSelect').value;
-  var date = document.getElementById('reportDate').value;
+  var fromDate = document.getElementById('fromDate').value;
+  var toDate = document.getElementById('toDate').value;
   if (!vendorId) { alert('Vendor select చేయండి!'); return; }
-  fetch('/admin/transactions?vendorId=' + vendorId + '&date=' + date, {
+  if (!fromDate || !toDate) { alert('Date range select చేయండి!'); return; }
+  fetch('/admin/transactions?vendorId=' + vendorId + '&fromDate=' + fromDate + '&toDate=' + toDate, {
     headers: { 'x-admin-password': pwd }
   })
   .then(function(r) { return r.json(); })
-  .then(function(data) { showReport(data, vendorId, date); });
+  .then(function(data) { showReport(data, vendorId, fromDate, toDate); });
 });
 function loadVendors() {
   fetch('/admin/vendors', { headers: { 'x-admin-password': pwd } })
@@ -407,7 +420,7 @@ function showVendors(data) {
     btn.addEventListener('click', function() { deleteVendor(this.getAttribute('data-id')); });
   });
 }
-function showReport(data, vendorId, date) {
+function showReport(data, vendorId, fromDate, toDate) {
   var div = document.getElementById('reportDiv');
   if (!data || data.length === 0) {
     div.innerHTML = '<p style="margin-top:10px;color:#888">No transactions found!</p>';
@@ -419,15 +432,19 @@ function showReport(data, vendorId, date) {
     totalAmount += parseFloat(t.amount);
     totalCommission += parseFloat(t.commission);
     totalVendor += parseFloat(t.vendor_amount);
-    rows += '<tr><td>' + t.time + '</td><td style="font-size:11px">' + t.payment_id + '</td>';
+    rows += '<tr><td>' + t.date + '</td><td>' + t.time + '</td>';
+    rows += '<td style="font-size:11px">' + t.payment_id + '</td>';
     rows += '<td>Rs.' + t.amount + '</td><td>Rs.' + t.commission + '</td>';
     rows += '<td>Rs.' + t.vendor_amount + '</td>';
     rows += '<td class="status-' + t.status.toLowerCase() + '">' + t.status + '</td></tr>';
   });
-  div.innerHTML = '<h3 style="margin:15px 0 10px">' + vendorId + ' - ' + date + '</h3>' +
-    '<table><thead><tr><th>Time</th><th>Payment ID</th><th>Amount</th><th>My Commission</th><th>Vendor Amount</th><th>Status</th></tr></thead>' +
+  div.innerHTML =
+    '<h3 style="margin:15px 0 5px">' + vendorId + '</h3>' +
+    '<p style="color:#888;font-size:13px;margin-bottom:10px">Period: ' + fromDate + ' to ' + toDate + '</p>' +
+    '<button class="btn btn-orange no-print" onclick="window.print()" style="margin-bottom:10px">🖨 Print / Save PDF</button>' +
+    '<table><thead><tr><th>Date</th><th>Time</th><th>Payment ID</th><th>Amount</th><th>My Commission</th><th>Vendor Amount</th><th>Status</th></tr></thead>' +
     '<tbody>' + rows +
-    '<tr class="total-row"><td colspan="2">TOTAL</td><td>Rs.' + totalAmount.toFixed(2) + '</td><td>Rs.' + totalCommission.toFixed(2) + '</td><td>Rs.' + totalVendor.toFixed(2) + '</td><td></td></tr>' +
+    '<tr class="total-row"><td colspan="3">TOTAL</td><td>Rs.' + totalAmount.toFixed(2) + '</td><td>Rs.' + totalCommission.toFixed(2) + '</td><td>Rs.' + totalVendor.toFixed(2) + '</td><td></td></tr>' +
     '</tbody></table>';
 }
 function deleteVendor(id) {
@@ -459,11 +476,12 @@ app.get('/admin/transactions', async function(req, res) {
   }
   try {
     var result = await pool.query(
-      'SELECT * FROM transactions WHERE vendor_id=$1 AND date=$2 ORDER BY created_at ASC',
-      [req.query.vendorId, req.query.date]
+      'SELECT * FROM transactions WHERE vendor_id=$1 AND date >= $2 AND date <= $3 ORDER BY created_at ASC',
+      [req.query.vendorId, req.query.fromDate, req.query.toDate]
     );
     res.json(result.rows);
   } catch (err) {
+    console.log('Query error:', err.message);
     res.json([]);
   }
 });
