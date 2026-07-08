@@ -85,7 +85,7 @@ async function initDB() {
 initDB();
 
 function getToday() {
-  return new Date().toISOString().split('T')[0];
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
 }
 
 async function recordTransaction(vendorId, paymentId, amountRupees, status) {
