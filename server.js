@@ -206,8 +206,28 @@ function pay() {
     description: 'Water Payment',
     notes: { vendor_id: '${vendorId}' },
     handler: function(response) {
-      document.body.innerHTML = '<div style="text-align:center;padding:50px;font-family:Arial"><div style="font-size:60px">✅</div><h2 style="color:#4CAF50;margin:20px 0">Payment Successful!</h2><p style="color:#888">Water dispensing...</p></div>';
-    },
+  var countdown = 60;
+  document.body.innerHTML = '<div style="text-align:center;padding:30px;font-family:Arial" id="statusDiv"><div style="font-size:60px">⏳</div><h2 style="color:#1565c0;margin:20px 0">Payment Successful!</h2><p style="color:#888">Waiting for water...</p><div style="font-size:48px;color:#1565c0;font-weight:bold;margin:20px 0" id="timer">60</div><p style="color:#aaa;font-size:14px">Please wait...</p></div>';
+  var interval = setInterval(function() {
+    countdown--;
+    var timerEl = document.getElementById("timer");
+    if (timerEl) timerEl.innerText = countdown;
+    if (countdown <= 0) {
+      clearInterval(interval);
+      document.body.innerHTML = '<div style="text-align:center;padding:30px;font-family:Arial"><div style="font-size:60px">❌</div><h2 style="color:#f44336;margin:20px 0">Water Not Dispensed!</h2><p style="color:#555">Your payment has been refunded.</p><p style="color:#888;font-size:14px;margin-top:10px">Amount will credit to your account in 1-2 working days.</p></div>';
+    }
+  }, 1000);
+  fetch('/status/' + '${vendorId}', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ paymentId: response.razorpay_payment_id })
+  }).then(function(r) { return r.json(); }).then(function(data) {
+    if (data.success) {
+      clearInterval(interval);
+      document.body.innerHTML = '<div style="text-align:center;padding:30px;font-family:Arial"><div style="font-size:60px">✅</div><h2 style="color:#4CAF50;margin:20px 0">Water Dispensing!</h2><p style="color:#888">Thank you for your payment.</p></div>';
+    }
+  });
+},
     prefill: { contact: '', email: '' },
     theme: { color: '#1565c0' }
   };
