@@ -215,8 +215,24 @@ function pay() {
         if (timerEl) timerEl.innerText = countdown;
         if (countdown <= 0) {
           clearInterval(interval);
-          document.body.innerHTML = '<div style="text-align:center;padding:30px;font-family:Arial"><div style="font-size:60px">❌</div><h2 style="color:#f44336;margin:20px 0">Water Not Dispensed!</h2><p style="color:#555">Your payment has been refunded.</p><p style="color:#888;font-size:14px;margin-top:10px">Amount will credit to your account in 1-2 working days.</p></div>';
-        }
+          document.body.innerHTML = `
+<div style="background:#0B3D91;width:100%;height:100vh;display:flex;justify-content:center;align-items:center;font-family:Arial,sans-serif;">
+    <div style="text-align:center;padding:30px;">
+        <div style="font-size:80px;color:#ff0000;">❌</div>
+
+        <h2 style="color:#ff0000;margin:20px 0;font-size:32px;font-weight:bold;">
+            Water Not Dispensed!
+        </h2>
+
+        <p style="color:#ffffff;font-size:20px;margin-top:10px;">
+            Your payment has been refunded.
+        </p>
+
+        <p style="color:#ffffff;font-size:16px;margin-top:15px;line-height:1.5;">
+            Amount will credit to your account in 1-2 working days.
+        </p>
+    </div>
+</div>`;}
       }, 1000);
       fetch('/status/${vendorId}', {
         method: 'POST',
